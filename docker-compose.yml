@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    env_file:
+      - .env
+    environment:
+      APP_DATA_DIR: /data
+      DATABASE_URL: postgresql://industrial:industrial@postgres:5432/industrial_copilot
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      TESSERACT_CMD: tesseract
+      OCR_LANG: kor+eng
+      OCR_DPI: 220
+    ports:
+      - "8000:8000"
+    volumes:
+      - industrial_data:/data
+    depends_on:
+      - postgres
+      - chroma
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: industrial
+      POSTGRES_PASSWORD: industrial
+      POSTGRES_DB: industrial_copilot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  chroma:
+    image: chromadb/chroma:latest
+    volumes:
+      - chroma_data:/chroma/chroma
+
+volumes:
+  industrial_data:
+  postgres_data:
+  chroma_data:

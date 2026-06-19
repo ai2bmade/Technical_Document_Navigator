@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>{{ app_name }}</h1>
+        <p>Evidence-first assistant for manuals, specifications, and layout documents.</p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel">
+        <h2>Documents</h2>
+        <form class="upload" action="/api/documents" method="post" enctype="multipart/form-data">
+          <input type="file" name="file" accept="application/pdf" required>
+          <button type="submit">Upload PDF</button>
+        </form>
+        <div class="doc-list">
+          {% for doc in documents %}
+          <div class="doc">
+            <strong>#{{ doc.id }} {{ doc.filename }}</strong>
+            <span>{{ doc.page_count }} pages, {{ doc.chunk_count }} text chunks</span>
+            {% if doc.chunk_count == 0 %}
+            <span class="warning">Needs OCR before Q&A</span>
+            <form action="/ocr-form" method="post">
+              <input type="hidden" name="document_id" value="{{ doc.id }}">
+              <button class="secondary" type="submit">Run OCR</button>
+            </form>
+            {% endif %}
+          </div>
+          {% else %}
+          <p class="muted">No documents uploaded yet.</p>
+          {% endfor %}
+        </div>
+      </aside>
+
+      <section class="reader">
+        <h2>Ask The Document</h2>
+        <form class="ask" action="/ask-form" method="post">
+          <label>
+            Document ID
+            <input name="document_id" type="number" min="1" placeholder="Optional">
+          </label>
+          <label>
+            Question
+            <textarea name="question" rows="4" required>{{ question or "" }}</textarea>
+          </label>
+          <button type="submit">Ask</button>
+        </form>
+
+        {% if result %}
+        <article class="answer">
+          <h3>Answer</h3>
+          <pre>{{ result.answer }}</pre>
+          <h3>Evidence</h3>
+          {% for item in result.evidence %}
+          <div class="evidence">
+            <strong>{{ item.filename }} p.{{ item.page_number }}</strong>
+            <p>{{ item.excerpt }}</p>
+          </div>
+          {% endfor %}
+        </article>
+        {% endif %}
+
+        {% if ocr_result %}
+        <article class="answer">
+          <h3>OCR Result</h3>
+          <pre>{{ ocr_result }}</pre>
+        </article>
+        {% endif %}
+      </section>
+
+      <aside class="panel">
+        <h2>Actions</h2>
+        <div class="action">Current page summary</div>
+        <div class="action">Beginner explanation</div>
+        <div class="action">Expert explanation</div>
+        <div class="action">Specification extraction</div>
+        <div class="action">Layout review checklist</div>
+        <div class="action">Translation workflow</div>
+      </aside>
+    </main>
+  </body>
+</html>
