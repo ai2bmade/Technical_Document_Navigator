@@ -11,8 +11,6 @@ services:
       OCR_LANG: kor+eng
       OCR_DPI: 220
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-    ports:
-      - "8000:8000"
     volumes:
       - industrial_data:/data
     depends_on:
