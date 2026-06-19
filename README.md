@@ -87,6 +87,7 @@ G:\Codex\tools\tesseract\Tesseract-OCR\tesseract.exe
 `docker-compose.yml` includes:
 
 - FastAPI app
+- Telegram long polling worker
 - PostgreSQL
 - Chroma
 
@@ -95,6 +96,8 @@ public domain such as `https://joshuajhchoi.cloud`.
 
 The Docker image installs `tesseract-ocr` and `tesseract-ocr-kor`, so Korean and
 English OCR work inside the container with `TESSERACT_CMD=tesseract`.
+
+See `DEPLOYMENT.md` for the fast Coolify checklist.
 
 ## Notes
 
