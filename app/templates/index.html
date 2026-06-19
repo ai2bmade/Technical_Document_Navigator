@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,84 +7,191 @@
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>{{ app_name }}</h1>
-        <p>Evidence-first assistant for manuals, specifications, and layout documents.</p>
-      </div>
-    </header>
-
-    <main class="layout">
-      <aside class="panel">
-        <h2>Documents</h2>
-        <form class="upload" action="/api/documents" method="post" enctype="multipart/form-data">
-          <input type="file" name="file" accept="application/pdf" required>
-          <button type="submit">Upload PDF</button>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">T</div>
+          <div>
+            <strong>Technical Document Navigator</strong>
+            <span>Industrial manual, spec, and layout copilot</span>
+          </div>
+        </div>
+        <nav class="nav">
+          <span class="active">Manual</span>
+          <span>Specification</span>
+          <span>Layout Review</span>
+          <span>Admin</span>
+        </nav>
+        <form class="top-upload" action="/upload-form" method="post" enctype="multipart/form-data">
+          <label class="file-button">
+            + Upload
+            <input type="file" name="file" accept="application/pdf" onchange="this.form.submit()">
+          </label>
         </form>
-        <div class="doc-list">
-          {% for doc in documents %}
-          <div class="doc">
-            <strong>#{{ doc.id }} {{ doc.filename }}</strong>
-            <span>{{ doc.page_count }} pages, {{ doc.chunk_count }} text chunks</span>
-            {% if doc.chunk_count == 0 %}
-            <span class="warning">Needs OCR before Q&A</span>
-            <form action="/ocr-form" method="post">
-              <input type="hidden" name="document_id" value="{{ doc.id }}">
-              <button class="secondary" type="submit">Run OCR</button>
-            </form>
+      </header>
+
+      <main class="workspace">
+        <aside class="panel sidebar">
+          <div class="sidebar-head">
+            <h2>Documents</h2>
+            <p>업로드된 PDF와 인덱싱 상태</p>
+          </div>
+
+          <div class="doc-list">
+            {% for doc in documents %}
+            <a class="doc-card {% if selected_document and doc.id == selected_document.id %}active{% endif %}" href="/?document_id={{ doc.id }}">
+              <div class="doc-title">#{{ doc.id }} {{ doc.filename }}</div>
+              <div class="doc-meta">{{ doc.page_count }} pages · {{ doc.chunk_count }} chunks</div>
+              {% if doc.chunk_count == 0 %}
+              <span class="status needs">Needs OCR</span>
+              {% else %}
+              <span class="status ready">Indexed</span>
+              {% endif %}
+            </a>
+            {% else %}
+            <div class="empty">아직 업로드된 문서가 없습니다.</div>
+            {% endfor %}
+          </div>
+
+          <div class="toc">
+            <h3>Document Navigator</h3>
+            {% if chunks %}
+              {% for chunk in chunks[:12] %}
+              <a class="toc-item {% if loop.first %}active{% endif %}" href="#page-{{ chunk.page_number }}">
+                <span class="num">{{ chunk.page_number }}</span>
+                <span>Page {{ chunk.page_number }}{% if chunk.section_title %} · {{ chunk.section_title }}{% endif %}</span>
+              </a>
+              {% endfor %}
+            {% else %}
+              <div class="empty small">텍스트 chunk가 없습니다. OCR을 실행하세요.</div>
             {% endif %}
           </div>
-          {% else %}
-          <p class="muted">No documents uploaded yet.</p>
-          {% endfor %}
-        </div>
-      </aside>
+        </aside>
 
-      <section class="reader">
-        <h2>Ask The Document</h2>
-        <form class="ask" action="/ask-form" method="post">
-          <label>
-            Document ID
-            <input name="document_id" type="number" min="1" placeholder="Optional">
-          </label>
-          <label>
-            Question
-            <textarea name="question" rows="4" required>{{ question or "" }}</textarea>
-          </label>
-          <button type="submit">Ask</button>
-        </form>
-
-        {% if result %}
-        <article class="answer">
-          <h3>Answer</h3>
-          <pre>{{ result.answer }}</pre>
-          <h3>Evidence</h3>
-          {% for item in result.evidence %}
-          <div class="evidence">
-            <strong>{{ item.filename }} p.{{ item.page_number }}</strong>
-            <p>{{ item.excerpt }}</p>
+        <section class="panel viewer">
+          <div class="viewer-head">
+            <div>
+              <small>{% if selected_document %}Document #{{ selected_document.id }} · Page Review{% else %}No document selected{% endif %}</small>
+              <h1>{% if selected_document %}{{ selected_document.filename }}{% else %}문서를 업로드하세요{% endif %}</h1>
+            </div>
+            {% if selected_document %}
+              {% if selected_document.chunk_count == 0 %}
+              <form action="/ocr-form" method="post">
+                <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                <button class="pill warning-pill" type="submit">Run OCR</button>
+              </form>
+              {% else %}
+              <span class="pill">Indexed</span>
+              {% endif %}
+            {% endif %}
           </div>
-          {% endfor %}
-        </article>
-        {% endif %}
 
-        {% if ocr_result %}
-        <article class="answer">
-          <h3>OCR Result</h3>
-          <pre>{{ ocr_result }}</pre>
-        </article>
-        {% endif %}
-      </section>
+          <div class="page">
+            <article class="manual-page">
+              {% if upload_message %}
+              <div class="notice">{{ upload_message }}</div>
+              {% endif %}
+              {% if ocr_result %}
+              <div class="notice">OCR result: {{ ocr_result.status }} · {{ ocr_result.chunks_added }} chunks</div>
+              {% endif %}
 
-      <aside class="panel">
-        <h2>Actions</h2>
-        <div class="action">Current page summary</div>
-        <div class="action">Beginner explanation</div>
-        <div class="action">Expert explanation</div>
-        <div class="action">Specification extraction</div>
-        <div class="action">Layout review checklist</div>
-        <div class="action">Translation workflow</div>
-      </aside>
-    </main>
+              <div class="manual-header">
+                <div>
+                  <div class="manual-title">
+                    {% if selected_document %}Extracted Document Text{% else %}Technical Document Navigator{% endif %}
+                  </div>
+                  <div class="manual-sub">근거 기반 요약, 검색, OCR, 질의응답을 위한 작업 화면</div>
+                </div>
+                <div class="page-no">
+                  {% if selected_document %}{{ selected_document.page_count }} pages<br>{{ selected_document.chunk_count }} chunks{% else %}MVP{% endif %}
+                </div>
+              </div>
+
+              {% if chunks %}
+                {% for chunk in chunks[:8] %}
+                <section class="manual-section" id="page-{{ chunk.page_number }}">
+                  <h2>Page {{ chunk.page_number }}{% if chunk.section_title %} · {{ chunk.section_title }}{% endif %}</h2>
+                  <p>{{ chunk.content }}</p>
+                </section>
+                {% endfor %}
+              {% elif selected_document %}
+                <section class="manual-section">
+                  <h2>OCR이 필요합니다</h2>
+                  <p>이 PDF에서 추출된 텍스트가 없습니다. 우측 또는 상단의 Run OCR 버튼을 눌러 한글/영문 OCR을 실행하세요.</p>
+                </section>
+              {% else %}
+                <section class="manual-section">
+                  <h2>시작하기</h2>
+                  <p>상단 Upload 버튼으로 매뉴얼, 사양서, 레이아웃 PDF를 업로드하세요. 텍스트 PDF는 즉시 인덱싱되고, 스캔 PDF는 OCR 후 질문할 수 있습니다.</p>
+                </section>
+              {% endif %}
+            </article>
+          </div>
+        </section>
+
+        <aside class="panel assistant">
+          <div class="assistant-head">
+            <h2>AI Technical Assistant</h2>
+            <p>현재 문서 또는 전체 문서를 기준으로 답변합니다. 모든 답변은 근거 페이지를 함께 표시합니다.</p>
+          </div>
+
+          <div class="quick">
+            <form action="/ask-form" method="post">
+              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="question" value="현재 문서를 요약해줘">
+              <button type="submit">현재 문서 요약</button>
+            </form>
+            <form action="/ask-form" method="post">
+              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="question" value="초보자도 이해하기 쉽게 설명해줘">
+              <button type="submit">쉽게 설명</button>
+            </form>
+            <form action="/ask-form" method="post">
+              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="question" value="중요한 주의사항을 찾아줘">
+              <button type="submit">주의사항</button>
+            </form>
+            <form action="/ask-form" method="post">
+              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="question" value="관련 사양을 찾아줘">
+              <button type="submit">관련 사양</button>
+            </form>
+          </div>
+
+          <div class="summary-card">
+            <h3>Current Context</h3>
+            <ul>
+              <li>{% if selected_document %}{{ selected_document.filename }}{% else %}문서 미선택{% endif %}</li>
+              <li>{% if selected_document %}{{ selected_document.chunk_count }} text chunks{% else %}업로드 후 사용 가능{% endif %}</li>
+              <li>응답 원칙: 결론보다 근거 우선</li>
+            </ul>
+          </div>
+
+          <div class="chat">
+            {% if question %}
+            <div class="msg user">{{ question }}</div>
+            {% endif %}
+            {% if result %}
+            <div class="msg bot">
+              {{ result.answer }}
+              {% for item in result.evidence %}
+              <div class="source">근거: {{ item.filename }} · Page {{ item.page_number }}</div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="msg bot">
+              문서를 선택한 뒤 질문해 주세요. 문서에서 확인되지 않는 내용은 추측하지 않고 확인 불가로 답합니다.
+            </div>
+            {% endif %}
+          </div>
+
+          <form class="input" action="/ask-form" method="post">
+            {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+            <input name="question" placeholder="현재 문서에 대해 질문하세요..." required>
+            <button type="submit">Send</button>
+          </form>
+        </aside>
+      </main>
+    </div>
   </body>
 </html>

@@ -40,13 +40,7 @@ class OcrRequest(BaseModel):
     replace_existing: bool = False
 
 
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
-
-
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request) -> HTMLResponse:
+def load_workspace(document_id: int | None = None) -> dict[str, object]:
     with db() as conn:
         documents = conn.execute(
             """
@@ -57,9 +51,49 @@ def index(request: Request) -> HTMLResponse:
             order by d.id desc
             """
         ).fetchall()
+        selected_document = None
+        if documents:
+            selected_id = document_id or documents[0]["id"]
+            selected_document = conn.execute(
+                """
+                select d.id, d.filename, d.page_count, d.created_at, count(c.id) as chunk_count
+                from documents d
+                left join chunks c on c.document_id = d.id
+                where d.id = ?
+                group by d.id
+                """,
+                (selected_id,),
+            ).fetchone()
+        chunks = []
+        if selected_document:
+            chunks = conn.execute(
+                """
+                select page_number, section_title, content
+                from chunks
+                where document_id = ?
+                order by page_number, id
+                limit 30
+                """,
+                (selected_document["id"],),
+            ).fetchall()
+    return {
+        "documents": documents,
+        "selected_document": selected_document,
+        "chunks": chunks,
+    }
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
+
+
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request, document_id: int | None = None) -> HTMLResponse:
+    workspace = load_workspace(document_id)
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "documents": documents, "app_name": settings.app_name},
+        {"request": request, "app_name": settings.app_name, **workspace},
     )
 
 
@@ -101,6 +135,30 @@ async def upload_document(file: UploadFile = File(...)) -> dict[str, object]:
         if temp_path.exists():
             temp_path.unlink(missing_ok=True)
     return {"document_id": document_id, "filename": file.filename}
+
+
+@app.post("/upload-form", response_class=HTMLResponse)
+async def upload_form(request: Request, file: UploadFile = File(...)) -> HTMLResponse:
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported in MVP.")
+    with NamedTemporaryFile(delete=False, suffix=".pdf") as temp:
+        temp.write(await file.read())
+        temp_path = Path(temp.name)
+    try:
+        document_id = ingest_pdf(temp_path, display_name=file.filename)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+    workspace = load_workspace(document_id)
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": f"Uploaded {file.filename}",
+            **workspace,
+        },
+    )
 
 
 @app.post("/api/documents/{document_id}/ocr")
@@ -149,24 +207,15 @@ def ask_form(
     document_id: int | None = Form(None),
 ) -> HTMLResponse:
     result = answer_question(question, document_id)
-    with db() as conn:
-        documents = conn.execute(
-            """
-            select d.id, d.filename, d.page_count, d.created_at, count(c.id) as chunk_count
-            from documents d
-            left join chunks c on c.document_id = d.id
-            group by d.id
-            order by d.id desc
-            """
-        ).fetchall()
+    workspace = load_workspace(document_id)
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "documents": documents,
             "app_name": settings.app_name,
             "question": question,
             "result": result,
+            **workspace,
         },
     )
 
@@ -174,22 +223,13 @@ def ask_form(
 @app.post("/ocr-form", response_class=HTMLResponse)
 def ocr_form(request: Request, document_id: int = Form(...)) -> HTMLResponse:
     result = run_ocr_for_document(document_id)
-    with db() as conn:
-        documents = conn.execute(
-            """
-            select d.id, d.filename, d.page_count, d.created_at, count(c.id) as chunk_count
-            from documents d
-            left join chunks c on c.document_id = d.id
-            group by d.id
-            order by d.id desc
-            """
-        ).fetchall()
+    workspace = load_workspace(document_id)
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "documents": documents,
             "app_name": settings.app_name,
             "ocr_result": result,
+            **workspace,
         },
     )
