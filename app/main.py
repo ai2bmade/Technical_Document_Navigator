@@ -41,7 +41,7 @@ class OcrRequest(BaseModel):
     replace_existing: bool = False
 
 
-def load_workspace(document_id: int | None = None) -> dict[str, object]:
+def load_workspace(document_id: int | None = None, page: int = 1) -> dict[str, object]:
     with db() as conn:
         documents = conn.execute(
             """
@@ -66,7 +66,16 @@ def load_workspace(document_id: int | None = None) -> dict[str, object]:
                 (selected_id,),
             ).fetchone()
         chunks = []
+        page_chunks = []
+        selected_page = 1
+        previous_page = None
+        next_page = None
         if selected_document:
+            selected_page = max(1, min(page, selected_document["page_count"]))
+            if selected_page > 1:
+                previous_page = selected_page - 1
+            if selected_page < selected_document["page_count"]:
+                next_page = selected_page + 1
             chunks = conn.execute(
                 """
                 select page_number, section_title, content
@@ -77,10 +86,23 @@ def load_workspace(document_id: int | None = None) -> dict[str, object]:
                 """,
                 (selected_document["id"],),
             ).fetchall()
+            page_chunks = conn.execute(
+                """
+                select page_number, section_title, content
+                from chunks
+                where document_id = ? and page_number = ?
+                order by id
+                """,
+                (selected_document["id"], selected_page),
+            ).fetchall()
     return {
         "documents": documents,
         "selected_document": selected_document,
+        "selected_page": selected_page,
+        "previous_page": previous_page,
+        "next_page": next_page,
         "chunks": chunks,
+        "page_chunks": page_chunks,
     }
 
 
@@ -90,8 +112,12 @@ def startup() -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, document_id: int | None = None) -> HTMLResponse:
-    workspace = load_workspace(document_id)
+def index(
+    request: Request,
+    document_id: int | None = None,
+    page: int = 1,
+) -> HTMLResponse:
+    workspace = load_workspace(document_id, page)
     return templates.TemplateResponse(
         "index.html",
         {"request": request, "app_name": settings.app_name, **workspace},
@@ -217,9 +243,10 @@ def ask_form(
     request: Request,
     question: str = Form(...),
     document_id: int | None = Form(None),
+    page: int = Form(1),
 ) -> HTMLResponse:
     result = answer_question(question, document_id)
-    workspace = load_workspace(document_id)
+    workspace = load_workspace(document_id, page)
     return templates.TemplateResponse(
         "index.html",
         {

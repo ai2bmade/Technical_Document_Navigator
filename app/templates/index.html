@@ -34,12 +34,12 @@
         <aside class="panel sidebar">
           <div class="sidebar-head">
             <h2>Documents</h2>
-            <p>업로드된 PDF와 인덱싱 상태</p>
+            <p>Uploaded PDFs and indexing status</p>
           </div>
 
           <div class="doc-list">
             {% for doc in documents %}
-            <a class="doc-card {% if selected_document and doc.id == selected_document.id %}active{% endif %}" href="/?document_id={{ doc.id }}">
+            <a class="doc-card {% if selected_document and doc.id == selected_document.id %}active{% endif %}" href="/?document_id={{ doc.id }}&page=1">
               <div class="doc-title">#{{ doc.id }} {{ doc.filename }}</div>
               <div class="doc-meta">{{ doc.page_count }} pages · {{ doc.chunk_count }} chunks</div>
               {% if doc.chunk_count == 0 %}
@@ -49,21 +49,21 @@
               {% endif %}
             </a>
             {% else %}
-            <div class="empty">아직 업로드된 문서가 없습니다.</div>
+            <div class="empty">No documents uploaded yet.</div>
             {% endfor %}
           </div>
 
           <div class="toc">
-            <h3>Document Navigator</h3>
-            {% if chunks %}
-              {% for chunk in chunks[:12] %}
-              <a class="toc-item {% if loop.first %}active{% endif %}" href="#page-{{ chunk.page_number }}">
-                <span class="num">{{ chunk.page_number }}</span>
-                <span>Page {{ chunk.page_number }}{% if chunk.section_title %} · {{ chunk.section_title }}{% endif %}</span>
+            <h3>Page Navigator</h3>
+            {% if selected_document %}
+              {% for page_number in range(1, selected_document.page_count + 1) %}
+              <a class="toc-item {% if page_number == selected_page %}active{% endif %}" href="/?document_id={{ selected_document.id }}&page={{ page_number }}">
+                <span class="num">{{ page_number }}</span>
+                <span>Page {{ page_number }}</span>
               </a>
               {% endfor %}
             {% else %}
-              <div class="empty small">텍스트 chunk가 없습니다. OCR을 실행하세요.</div>
+              <div class="empty small">Upload a PDF to browse pages.</div>
             {% endif %}
           </div>
         </aside>
@@ -71,8 +71,14 @@
         <section class="panel viewer">
           <div class="viewer-head">
             <div>
-              <small>{% if selected_document %}Document #{{ selected_document.id }} · Page Review{% else %}No document selected{% endif %}</small>
-              <h1>{% if selected_document %}{{ selected_document.filename }}{% else %}문서를 업로드하세요{% endif %}</h1>
+              <small>
+                {% if selected_document %}
+                Document #{{ selected_document.id }} · Page {{ selected_page }} of {{ selected_document.page_count }}
+                {% else %}
+                No document selected
+                {% endif %}
+              </small>
+              <h1>{% if selected_document %}{{ selected_document.filename }}{% else %}Upload a document{% endif %}</h1>
             </div>
             {% if selected_document %}
               {% if selected_document.chunk_count == 0 %}
@@ -98,36 +104,58 @@
               <div class="manual-header">
                 <div>
                   <div class="manual-title">
-                    {% if selected_document %}Extracted Document Text{% else %}Technical Document Navigator{% endif %}
+                    {% if selected_document %}Original PDF Page{% else %}Technical Document Navigator{% endif %}
                   </div>
-                  <div class="manual-sub">근거 기반 요약, 검색, OCR, 질의응답을 위한 작업 화면</div>
+                  <div class="manual-sub">Page image first. OCR text below. Evidence stays visible.</div>
                 </div>
                 <div class="page-no">
-                  {% if selected_document %}{{ selected_document.page_count }} pages<br>{{ selected_document.chunk_count }} chunks{% else %}MVP{% endif %}
+                  {% if selected_document %}
+                  Page {{ selected_page }} / {{ selected_document.page_count }}<br>{{ selected_document.chunk_count }} chunks
+                  {% else %}
+                  MVP
+                  {% endif %}
                 </div>
               </div>
 
-              {% if chunks %}
-                {% for chunk in chunks[:8] %}
-                <section class="manual-section" id="page-{{ chunk.page_number }}">
-                  <h2>Page {{ chunk.page_number }}{% if chunk.section_title %} · {{ chunk.section_title }}{% endif %}</h2>
-                  <figure class="page-image">
-                    <img src="/documents/{{ selected_document.id }}/pages/{{ chunk.page_number }}.png" alt="{{ selected_document.filename }} page {{ chunk.page_number }}">
-                    <figcaption>Original PDF page {{ chunk.page_number }}</figcaption>
-                  </figure>
-                  <p>{{ chunk.content }}</p>
-                </section>
-                {% endfor %}
-              {% elif selected_document %}
-                <section class="manual-section">
-                  <h2>OCR이 필요합니다</h2>
-                  <p>이 PDF에서 추출된 텍스트가 없습니다. 우측 또는 상단의 Run OCR 버튼을 눌러 한글/영문 OCR을 실행하세요.</p>
-                </section>
+              {% if selected_document %}
+              <div class="page-controls">
+                {% if previous_page %}
+                <a class="page-button" href="/?document_id={{ selected_document.id }}&page={{ previous_page }}">Prev</a>
+                {% else %}
+                <span class="page-button disabled">Prev</span>
+                {% endif %}
+                <span class="page-current">Page {{ selected_page }}</span>
+                {% if next_page %}
+                <a class="page-button" href="/?document_id={{ selected_document.id }}&page={{ next_page }}">Next</a>
+                {% else %}
+                <span class="page-button disabled">Next</span>
+                {% endif %}
+              </div>
+
+              <section class="manual-section" id="page-{{ selected_page }}">
+                <figure class="page-image single-page">
+                  <img src="/documents/{{ selected_document.id }}/pages/{{ selected_page }}.png" alt="{{ selected_document.filename }} page {{ selected_page }}">
+                  <figcaption>Original PDF page {{ selected_page }}</figcaption>
+                </figure>
+
+                <div class="ocr-text-panel">
+                  <h2>OCR / Extracted Text</h2>
+                  {% if page_chunks %}
+                    {% for chunk in page_chunks %}
+                    <p>{{ chunk.content }}</p>
+                    {% endfor %}
+                  {% elif selected_document.chunk_count == 0 %}
+                    <p>No extracted text yet. Run OCR for scanned PDFs.</p>
+                  {% else %}
+                    <p>No text chunk was found for this page.</p>
+                  {% endif %}
+                </div>
+              </section>
               {% else %}
-                <section class="manual-section">
-                  <h2>시작하기</h2>
-                  <p>상단 Upload 버튼으로 매뉴얼, 사양서, 레이아웃 PDF를 업로드하세요. 텍스트 PDF는 즉시 인덱싱되고, 스캔 PDF는 OCR 후 질문할 수 있습니다.</p>
-                </section>
+              <section class="manual-section">
+                <h2>Start</h2>
+                <p>Upload a manual, spec sheet, or layout PDF. Text PDFs are indexed immediately. Scanned PDFs can be searched after OCR.</p>
+              </section>
               {% endif %}
             </article>
           </div>
@@ -136,38 +164,42 @@
         <aside class="panel assistant">
           <div class="assistant-head">
             <h2>AI Technical Assistant</h2>
-            <p>현재 문서 또는 전체 문서를 기준으로 답변합니다. 모든 답변은 근거 페이지를 함께 표시합니다.</p>
+            <p>Ask about the selected document. Answers include evidence pages when available.</p>
           </div>
 
           <div class="quick">
             <form action="/ask-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
-              <input type="hidden" name="question" value="현재 문서를 요약해줘">
-              <button type="submit">현재 문서 요약</button>
+              <input type="hidden" name="page" value="{{ selected_page }}">
+              <input type="hidden" name="question" value="Summarize the current document.">
+              <button type="submit">Document Summary</button>
             </form>
             <form action="/ask-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
-              <input type="hidden" name="question" value="초보자도 이해하기 쉽게 설명해줘">
-              <button type="submit">쉽게 설명</button>
+              <input type="hidden" name="page" value="{{ selected_page }}">
+              <input type="hidden" name="question" value="Explain this in beginner-friendly terms.">
+              <button type="submit">Easy Explain</button>
             </form>
             <form action="/ask-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
-              <input type="hidden" name="question" value="중요한 주의사항을 찾아줘">
-              <button type="submit">주의사항</button>
+              <input type="hidden" name="page" value="{{ selected_page }}">
+              <input type="hidden" name="question" value="Find important safety warnings.">
+              <button type="submit">Warnings</button>
             </form>
             <form action="/ask-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
-              <input type="hidden" name="question" value="관련 사양을 찾아줘">
-              <button type="submit">관련 사양</button>
+              <input type="hidden" name="page" value="{{ selected_page }}">
+              <input type="hidden" name="question" value="Find related specifications.">
+              <button type="submit">Related Specs</button>
             </form>
           </div>
 
           <div class="summary-card">
             <h3>Current Context</h3>
             <ul>
-              <li>{% if selected_document %}{{ selected_document.filename }}{% else %}문서 미선택{% endif %}</li>
-              <li>{% if selected_document %}{{ selected_document.chunk_count }} text chunks{% else %}업로드 후 사용 가능{% endif %}</li>
-              <li>응답 원칙: 결론보다 근거 우선</li>
+              <li>{% if selected_document %}{{ selected_document.filename }}{% else %}No document selected{% endif %}</li>
+              <li>{% if selected_document %}Page {{ selected_page }} / {{ selected_document.page_count }}{% else %}Upload first{% endif %}</li>
+              <li>Evidence first. No unsupported guessing.</li>
             </ul>
           </div>
 
@@ -179,19 +211,20 @@
             <div class="msg bot">
               {{ result.answer }}
               {% for item in result.evidence %}
-              <div class="source">근거: {{ item.filename }} · Page {{ item.page_number }}</div>
+              <div class="source">Evidence: {{ item.filename }} · Page {{ item.page_number }}</div>
               {% endfor %}
             </div>
             {% else %}
             <div class="msg bot">
-              문서를 선택한 뒤 질문해 주세요. 문서에서 확인되지 않는 내용은 추측하지 않고 확인 불가로 답합니다.
+              Select a document and ask a question. If the answer is not in the document, the assistant will say it cannot be confirmed.
             </div>
             {% endif %}
           </div>
 
           <form class="input" action="/ask-form" method="post">
             {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
-            <input name="question" placeholder="현재 문서에 대해 질문하세요..." required>
+            <input type="hidden" name="page" value="{{ selected_page }}">
+            <input name="question" placeholder="Ask about the selected document..." required>
             <button type="submit">Send</button>
           </form>
         </aside>
