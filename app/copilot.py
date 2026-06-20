@@ -10,6 +10,21 @@ from app.storage import db
 NO_EVIDENCE = "Document evidence not found."
 
 
+ANSWER_LANGUAGE_NAMES = {
+    "ko": "Korean",
+    "en": "English",
+    "es": "Spanish",
+    "ar": "Arabic",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "zh": "Chinese",
+    "ja": "Japanese",
+}
+
+
 def compact_text(text: str, limit: int = 900) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) <= limit:
@@ -124,6 +139,111 @@ def answer_question(question: str, document_id: int | None = None) -> dict[str, 
         ],
         "needs_ocr": needs_ocr,
     }
+
+
+def answer_question_with_ai(
+    question: str,
+    document_id: int | None = None,
+    language: str = "ko",
+) -> dict[str, object]:
+    hits = search(question, document_id=document_id, limit=6)
+    language_name = ANSWER_LANGUAGE_NAMES.get(language.lower(), language)
+    if not hits:
+        context = document_context(document_id, max_chars=9000) if document_id else ""
+        if context:
+            answer = generate_text(
+                (
+                    "You are a careful customer-support assistant for an industrial product manual. "
+                    f"Answer in {language_name}. Use only the selected manual context provided below. "
+                    "If the context does not support the answer, say that the manual evidence is insufficient. "
+                    "Do not invent specifications, safety instructions, or procedures. Preserve numbers, units, "
+                    "model names, warning words, and button labels exactly when they appear in the evidence."
+                ),
+                (
+                    "Search did not find a focused passage, so use this broader selected-manual context.\n\n"
+                    f"Customer question:\n{question}\n\n"
+                    f"Manual context:\n{context}\n\n"
+                    "Return a concise customer-facing answer with page references when visible in the context."
+                ),
+            )
+            return {
+                "answer": answer,
+                "evidence": [],
+                "needs_ocr": False,
+                "engine": "openai_broad_context",
+            }
+        answer = generate_text(
+            (
+                "You are a careful customer-support assistant for an industrial product manual. "
+                f"Answer in {language_name}. If the question is not supported by the selected manual, "
+                "say that the manual evidence was not found. Do not invent specifications, safety instructions, "
+                "or procedures. You may briefly suggest what manual section or support channel to check next."
+            ),
+            (
+                "No matching manual evidence was found for the selected document.\n\n"
+                f"Customer question:\n{question}"
+            ),
+        )
+        return {"answer": answer, "evidence": [], "needs_ocr": False, "engine": "openai"}
+
+    evidence_blocks = []
+    for index, hit in enumerate(hits, start=1):
+        evidence_blocks.append(
+            f"[Evidence {index}: {hit.filename} p.{hit.page_number}]\n{compact_text(hit.content, 1200)}"
+        )
+    instructions = (
+        "You are a high-quality customer-support assistant for an industrial product manual. "
+        f"Answer in {language_name}. Use only the provided evidence from the selected manual. "
+        "If the evidence is incomplete or the customer asks something unrelated, say so clearly and do not guess. "
+        "Preserve model names, numbers, units, warning words, and button labels exactly when they appear in the evidence. "
+        "Give a practical answer customers can use, and include evidence page references at the end."
+    )
+    prompt = (
+        f"Customer question:\n{question}\n\n"
+        "Manual evidence:\n"
+        + "\n\n".join(evidence_blocks)
+        + "\n\n"
+        "Return format:\n"
+        "1. Direct answer\n"
+        "2. Important caution or limitation, if any\n"
+        "3. Evidence pages"
+    )
+    answer = generate_text(instructions, prompt)
+    with db() as conn:
+        conn.execute(
+            "insert into questions(question, answer) values (?, ?)",
+            (question, answer),
+        )
+    return {
+        "answer": answer,
+        "evidence": [
+            {
+                "document_id": hit.document_id,
+                "filename": hit.filename,
+                "page_number": hit.page_number,
+                "section_title": hit.section_title,
+                "score": round(hit.score, 4),
+                "excerpt": hit.content[:500],
+            }
+            for hit in hits
+        ],
+        "needs_ocr": False,
+        "engine": "openai",
+    }
+
+
+def translate_customer_text(text: str, language: str) -> str:
+    if not text or language.lower() == "ko":
+        return text
+    language_name = ANSWER_LANGUAGE_NAMES.get(language.lower(), language)
+    return generate_text(
+        (
+            "You are a professional industrial manual translator. "
+            f"Translate into {language_name}. Preserve numbers, units, model names, warnings, button labels, "
+            "and procedure order. Do not add content. If OCR text is unclear, keep the uncertainty visible."
+        ),
+        f"Translate this customer manual text:\n\n{text}",
+    )
 
 
 SPEC_FIELDS = {

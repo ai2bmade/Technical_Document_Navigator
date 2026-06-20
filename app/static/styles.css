@@ -822,6 +822,10 @@ button.pill {
   font-size: 12px;
 }
 
+.review-action-form + .quick {
+  display: none;
+}
+
 @media (max-width: 1120px) {
   .workspace {
     grid-template-columns: 260px minmax(0, 1fr);

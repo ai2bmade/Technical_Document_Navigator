@@ -14,8 +14,9 @@ from telegram.ext import (
 )
 
 from app.config import settings
-from app.copilot import answer_question, page_action
+from app.copilot import answer_question_with_ai, page_action, translate_customer_text
 from app.manual_pipeline import get_manual_page, list_product_manuals
+from app.openai_service import OpenAIUnavailable
 from app.page_images import render_page_png
 from app.storage import db, init_db
 
@@ -28,15 +29,13 @@ LANGUAGE_LABELS = {
     "ko": "한국어",
     "en": "English",
     "es": "Español",
-    "ar": "العربية",
+    "ar": "Arabic",
     "fr": "Français",
     "de": "Deutsch",
-    "it": "Italiano",
     "pt": "Português",
-    "ru": "Русский",
-    "zh": "中文",
-    "ja": "日本語",
 }
+
+CUSTOMER_LANGUAGES = ["ko", "en", "es", "ar", "fr", "de", "pt"]
 
 
 def language_label(code: str) -> str:
@@ -108,52 +107,71 @@ def language_keyboard(product_slug: str) -> InlineKeyboardMarkup:
         for manual in list_product_manuals()
         if str(manual["slug"]) == product_slug
     ]
-    rows = [
-        [
-            InlineKeyboardButton(
-                language_label(str(manual["language"])),
-                callback_data=f"manual:{manual['manual_version_id']}:1",
-            )
-        ]
-        for manual in manuals
-    ]
-    rows.append([InlineKeyboardButton("제품 다시 선택", callback_data="products")])
+    if not manuals:
+        return InlineKeyboardMarkup([[InlineKeyboardButton("Choose product again", callback_data="products")]])
+
+    manuals_by_language = {str(manual["language"]).lower(): manual for manual in manuals}
+    fallback_manual = manuals_by_language.get("ko", manuals[0])
+    rows = []
+    for language in CUSTOMER_LANGUAGES:
+        manual = manuals_by_language.get(language, fallback_manual)
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    language_label(language),
+                    callback_data=f"manual_lang:{manual['manual_version_id']}:1:{language}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("Choose product again", callback_data="products")])
     return InlineKeyboardMarkup(rows)
 
 
-def page_keyboard(manual_version_id: int, page_number: int, page_count: int) -> InlineKeyboardMarkup:
+def page_keyboard(
+    manual_version_id: int,
+    page_number: int,
+    page_count: int,
+    language: str,
+) -> InlineKeyboardMarkup:
     buttons: list[list[InlineKeyboardButton]] = []
     nav_row: list[InlineKeyboardButton] = []
     if page_number > 1:
-        nav_row.append(InlineKeyboardButton("이전", callback_data=f"page:{manual_version_id}:{page_number - 1}"))
+        nav_row.append(
+            InlineKeyboardButton(
+                "Prev",
+                callback_data=f"page:{manual_version_id}:{page_number - 1}:{language}",
+            )
+        )
     if page_number < page_count:
-        nav_row.append(InlineKeyboardButton("다음", callback_data=f"page:{manual_version_id}:{page_number + 1}"))
+        nav_row.append(
+            InlineKeyboardButton(
+                "Next",
+                callback_data=f"page:{manual_version_id}:{page_number + 1}:{language}",
+            )
+        )
     if nav_row:
         buttons.append(nav_row)
     buttons.append(
         [
-            InlineKeyboardButton("현재 페이지 요약", callback_data=f"summary:{manual_version_id}:{page_number}"),
-            InlineKeyboardButton("주의사항", callback_data=f"warnings:{manual_version_id}:{page_number}"),
+            InlineKeyboardButton("Summary", callback_data=f"summary:{manual_version_id}:{page_number}:{language}"),
+            InlineKeyboardButton("Warnings", callback_data=f"warnings:{manual_version_id}:{page_number}:{language}"),
         ]
     )
-    buttons.append([InlineKeyboardButton("언어 변경", callback_data=f"product_for_manual:{manual_version_id}")])
+    buttons.append([InlineKeyboardButton("Change language", callback_data=f"product_for_manual:{manual_version_id}")])
     return InlineKeyboardMarkup(buttons)
 
 
 async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     manuals = list_product_manuals()
-    text = (
-        "제품 매뉴얼을 선택해 주세요.\n\n"
-        "제품을 선택하면 사용 언어를 고를 수 있습니다."
-    )
     if not manuals:
-        text = "아직 공개된 Preview 매뉴얼이 없습니다. 관리자 페이지에서 먼저 매뉴얼을 등록해 주세요."
+        text = "No published preview manuals yet. Please register a manual in Manual Admin first."
         if update.callback_query:
             await update.callback_query.message.reply_text(text)
         else:
             await update.message.reply_text(text)
         return
 
+    text = "Choose a product manual. After selecting a product, choose the customer language."
     if update.callback_query:
         await update.callback_query.message.reply_text(text, reply_markup=product_keyboard())
     else:
@@ -163,8 +181,8 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Technical Document Navigator\n\n"
-        "고객용 모바일 매뉴얼 뷰어입니다.\n"
-        "아래 버튼으로 제품과 언어를 선택한 뒤, 페이지를 보거나 질문할 수 있습니다.",
+        "Choose a product and language with the buttons below. "
+        "Then you can view pages or ask questions about the selected manual.",
         reply_markup=product_keyboard() if list_product_manuals() else None,
     )
 
@@ -178,20 +196,27 @@ async def send_manual_page(
     context: ContextTypes.DEFAULT_TYPE,
     manual_version_id: int,
     page_number: int,
+    language: str | None = None,
 ) -> None:
     info = manual_version_info(manual_version_id)
     if info is None:
-        await context.bot.send_message(chat_id, "매뉴얼을 찾을 수 없습니다.")
+        await context.bot.send_message(chat_id, "Manual not found.")
         return
 
     page_count = int(info["page_count"])
     page_number = max(1, min(page_number, page_count))
+    selected_language = (language or str(info["language"])).lower()
     source_document_id = info.get("source_document_id")
     text = manual_page_text(manual_version_id, page_number)
-    language = language_label(str(info["language"]))
+    if text:
+        try:
+            text = translate_customer_text(text, selected_language)
+        except OpenAIUnavailable:
+            pass
+
     caption = (
         f"{info['display_name']}\n"
-        f"언어: {language}\n"
+        f"Language: {language_label(selected_language)}\n"
         f"Page {page_number} / {page_count}"
     )
     if text:
@@ -199,21 +224,20 @@ async def send_manual_page(
 
     context.user_data["manual_version_id"] = manual_version_id
     context.user_data["source_document_id"] = source_document_id
-    context.user_data["language"] = info["language"]
+    context.user_data["language"] = selected_language
+    context.user_data["page_number"] = page_number
+
+    keyboard = page_keyboard(manual_version_id, page_number, page_count, selected_language)
     if source_document_id:
         image = render_page_png(int(source_document_id), page_number, dpi=135)
         await context.bot.send_photo(
             chat_id=chat_id,
             photo=io.BytesIO(image),
             caption=caption[:1024],
-            reply_markup=page_keyboard(manual_version_id, page_number, page_count),
+            reply_markup=keyboard,
         )
     else:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=caption[:3900],
-            reply_markup=page_keyboard(manual_version_id, page_number, page_count),
-        )
+        await context.bot.send_message(chat_id=chat_id, text=caption[:3900], reply_markup=keyboard)
 
 
 async def manual_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -224,7 +248,7 @@ async def manual_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         manual_version_id = int(context.args[0])
         page_number = int(context.args[1]) if len(context.args) > 1 else 1
     except ValueError:
-        await update.message.reply_text("버튼으로 제품과 언어를 선택해 주세요. /manuals")
+        await update.message.reply_text("Please use /manuals and choose with buttons.")
         return
     await send_manual_page(update.effective_chat.id, context, manual_version_id, page_number)
 
@@ -242,10 +266,10 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         manual_version_id = int(data.split(":", 1)[1])
         info = manual_version_info(manual_version_id)
         if info is None:
-            await query.message.reply_text("매뉴얼을 찾을 수 없습니다.")
+            await query.message.reply_text("Manual not found.")
             return
         await query.message.reply_text(
-            f"{info['display_name']} 언어를 선택해 주세요.",
+            f"Choose language for {info['display_name']}.",
             reply_markup=language_keyboard(str(info["slug"])),
         )
         return
@@ -253,10 +277,10 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     product_slug = data.split(":", 1)[1]
     manuals = [manual for manual in list_product_manuals() if str(manual["slug"]) == product_slug]
     if not manuals:
-        await query.message.reply_text("이 제품에 등록된 언어 버전이 없습니다.")
+        await query.message.reply_text("No language version is registered for this product.")
         return
     await query.message.reply_text(
-        f"{manuals[0]['display_name']} 언어를 선택해 주세요.",
+        f"Choose language for {manuals[0]['display_name']}.",
         reply_markup=language_keyboard(product_slug),
     )
 
@@ -264,17 +288,19 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    action, manual_id_raw, page_raw = (query.data or "").split(":")
+    parts = (query.data or "").split(":")
+    action, manual_id_raw, page_raw = parts[:3]
+    language = parts[3] if len(parts) > 3 else str(context.user_data.get("language") or "ko")
     manual_version_id = int(manual_id_raw)
     page_number = int(page_raw)
 
-    if action in {"page", "manual"}:
-        await send_manual_page(query.message.chat_id, context, manual_version_id, page_number)
+    if action in {"page", "manual", "manual_lang"}:
+        await send_manual_page(query.message.chat_id, context, manual_version_id, page_number, language)
         return
 
     info = manual_version_info(manual_version_id)
     if info is None:
-        await query.message.reply_text("매뉴얼을 찾을 수 없습니다.")
+        await query.message.reply_text("Manual not found.")
         return
     result = page_action(
         action,
@@ -282,19 +308,26 @@ async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         info["display_name"],
         page_number,
     )
-    await query.message.reply_text(result["answer"][:3900])
+    answer = result["answer"]
+    try:
+        answer = translate_customer_text(answer, language)
+    except OpenAIUnavailable:
+        pass
+    await query.message.reply_text(answer[:3900])
 
 
 async def answer_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     question = update.message.text or ""
     source_document_id = context.user_data.get("source_document_id")
     if not source_document_id:
-        await update.message.reply_text(
-            "먼저 /manuals 를 눌러 제품과 언어를 선택한 뒤 질문해 주세요."
-        )
+        await update.message.reply_text("Please use /manuals first, then choose product and language.")
         return
-    result = answer_question(question, int(source_document_id))
-    await update.message.reply_text(result["answer"][:3900])
+    language = str(context.user_data.get("language") or "ko")
+    try:
+        result = answer_question_with_ai(question, int(source_document_id), language=language)
+        await update.message.reply_text(result["answer"][:3900])
+    except OpenAIUnavailable:
+        await update.message.reply_text("AI answer engine is not available. Please try again later.")
 
 
 def main() -> None:
@@ -308,7 +341,7 @@ def main() -> None:
     application.add_handler(CommandHandler("manual", manual_command))
     application.add_handler(CommandHandler("manula", manual_command))
     application.add_handler(CallbackQueryHandler(product_callback, pattern=r"^(products|product:|product_for_manual:)"))
-    application.add_handler(CallbackQueryHandler(page_callback, pattern=r"^(manual|page|summary|warnings):"))
+    application.add_handler(CallbackQueryHandler(page_callback, pattern=r"^(manual|manual_lang|page|summary|warnings):"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer_message))
     LOGGER.info("Telegram customer manual viewer started")
     application.run_polling()
