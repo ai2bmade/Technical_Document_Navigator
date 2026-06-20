@@ -269,8 +269,8 @@
 
         <aside class="panel assistant">
           <div class="assistant-head">
-            <h2>{% if mode == 'preview' %}Customer Assistant{% else %}AI Technical Assistant{% endif %}</h2>
-            <p>{% if mode == 'preview' %}고객이 볼 매뉴얼 페이지 기준으로 질문합니다.{% else %}Ask about the selected document. Answers include evidence pages when available.{% endif %}</p>
+            <h2>{% if mode == 'preview' %}Customer Assistant{% elif mode == 'manual_admin' %}Manual Admin Tools{% else %}AI Technical Assistant{% endif %}</h2>
+            <p>{% if mode == 'preview' %}고객이 볼 매뉴얼 페이지 기준으로 질문합니다.{% elif mode == 'manual_admin' %}업로드 PDF를 제품군 매뉴얼로 등록하거나 정리합니다.{% else %}Ask about the selected document. Answers include evidence pages when available.{% endif %}</p>
           </div>
 
           {% if mode == 'manual_admin' and selected_document and selected_document.chunk_count > 0 %}
@@ -297,31 +297,44 @@
           </form>
           {% endif %}
 
-          {% if mode != 'preview' %}
+          {% if mode == 'manual_admin' and selected_document %}
+          <form class="admin-form danger-form" action="/delete-document-form" method="post">
+            <h3>Uploaded PDF Cleanup</h3>
+            <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+            <p>{{ selected_document.filename }}</p>
+            <button type="submit">Delete Uploaded PDF</button>
+          </form>
+          {% endif %}
+
+          {% if mode == 'preview' and selected_manual and selected_manual.source_document_id %}
           <div class="quick">
             <form action="/quick-form" method="post">
-              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
+              <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
               <input type="hidden" name="mode" value="{{ mode }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="summary">
               <button type="submit">현재 페이지 요약</button>
             </form>
             <form action="/quick-form" method="post">
-              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
+              <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
               <input type="hidden" name="mode" value="{{ mode }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="easy">
               <button type="submit">쉽게 설명</button>
             </form>
             <form action="/quick-form" method="post">
-              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
+              <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
               <input type="hidden" name="mode" value="{{ mode }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="warnings">
               <button type="submit">주의사항</button>
             </form>
             <form action="/quick-form" method="post">
-              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
+              <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
               <input type="hidden" name="mode" value="{{ mode }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="specs">
@@ -337,6 +350,10 @@
               <li>{{ selected_manual.display_name }}</li>
               <li>{{ selected_manual.language|upper }} · Page {{ selected_page }} / {{ selected_manual.page_count }}</li>
               <li>Customer-facing published copy.</li>
+              {% elif mode == 'manual_admin' %}
+              <li>{% if selected_document %}{{ selected_document.filename }}{% else %}No document selected{% endif %}</li>
+              <li>{% if selected_document %}{{ selected_document.page_count }} pages · {{ selected_document.chunk_count }} chunks{% else %}Upload first{% endif %}</li>
+              <li>Internal upload and publishing workspace.</li>
               {% else %}
               <li>{% if selected_document %}{{ selected_document.filename }}{% else %}No document selected{% endif %}</li>
               <li>{% if selected_document %}Page {{ selected_page }} / {{ selected_document.page_count }}{% else %}Upload first{% endif %}</li>
@@ -367,6 +384,8 @@
             <div class="assistant-hint">
               {% if mode == 'preview' %}
               고객용 화면에서는 현재 매뉴얼 페이지를 보면서 요약이나 질문을 받을 공간입니다.
+              {% elif mode == 'manual_admin' %}
+              이 화면은 내부 작업용입니다. 고객에게 보일 요약과 질문 기능은 Preview에서 확인합니다.
               {% else %}
               현재 페이지 요약, 쉬운 설명, 주의사항 버튼을 누르거나 아래에 직접 질문하세요.
               {% endif %}
@@ -374,6 +393,7 @@
             {% endif %}
           </div>
 
+          {% if mode != 'manual_admin' %}
           <form class="input" action="/ask-form" method="post">
             {% if mode == 'preview' and selected_manual and selected_manual.source_document_id %}
             <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
@@ -386,6 +406,7 @@
             <input name="question" placeholder="Ask about the selected document..." required>
             <button type="submit">Send</button>
           </form>
+          {% endif %}
         </aside>
       </main>
     </div>

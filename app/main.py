@@ -325,6 +325,34 @@ def product_manual_form(
     )
 
 
+@app.post("/delete-document-form", response_class=HTMLResponse)
+def delete_document_form(request: Request, document_id: int = Form(...)) -> HTMLResponse:
+    with db() as conn:
+        row = conn.execute(
+            "select stored_path from documents where id = ?",
+            (document_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Document was not found.")
+        stored_path = Path(row["stored_path"])
+        conn.execute("delete from documents where id = ?", (document_id,))
+    try:
+        stored_path.relative_to(settings.uploads_dir)
+        stored_path.unlink(missing_ok=True)
+    except ValueError:
+        pass
+    workspace = load_workspace(mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "Deleted uploaded PDF.",
+            **workspace,
+        },
+    )
+
+
 @app.post("/api/documents/{document_id}/ocr")
 def ocr_document(document_id: int, payload: OcrRequest | None = None) -> dict[str, object]:
     try:
@@ -448,17 +476,29 @@ def quick_form(
     document_id: int = Form(...),
     page: int = Form(1),
     mode: str = Form("manual_admin"),
+    manual_version_id: int | None = Form(None),
 ) -> HTMLResponse:
-    workspace = load_workspace(document_id, page, mode)
+    workspace = load_workspace(document_id, page, mode, manual_version_id)
     selected_document = workspace["selected_document"]
-    page_chunks = workspace["page_chunks"]
-    page_text = "\n\n".join(chunk["content"] for chunk in page_chunks)
+    selected_manual_page = workspace["selected_manual_page"]
     if selected_document is None:
         raise HTTPException(status_code=404, detail="Document was not found.")
+    if mode == "preview" and selected_manual_page is not None:
+        page_text = (
+            selected_manual_page["published_text"]
+            or selected_manual_page["ai_corrected_text"]
+            or selected_manual_page["raw_ocr_text"]
+            or ""
+        )
+        display_name = workspace["selected_manual"]["display_name"]
+    else:
+        page_chunks = workspace["page_chunks"]
+        page_text = "\n\n".join(chunk["content"] for chunk in page_chunks)
+        display_name = selected_document["filename"]
     result = page_action(
         action,
         page_text,
-        selected_document["filename"],
+        display_name,
         workspace["selected_page"],
     )
     return templates.TemplateResponse(

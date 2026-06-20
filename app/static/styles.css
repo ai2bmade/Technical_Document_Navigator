@@ -541,6 +541,18 @@ button.pill {
   padding: 10px 12px;
 }
 
+.admin-form p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.danger-form button {
+  background: #991b1b;
+}
+
 .chat {
   display: flex;
   flex: 1;
