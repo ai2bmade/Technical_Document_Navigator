@@ -513,8 +513,8 @@ button.pill {
 }
 
 .ocr-edit-form {
-  background: #fff;
-  border: 1px solid #dbe3ef;
+  background: #f8fafc;
+  border: 2px solid #2563eb;
   border-radius: 10px;
   display: grid;
   gap: 12px;
@@ -523,7 +523,8 @@ button.pill {
 }
 
 .ocr-edit-form h2 {
-  font-size: 16px;
+  color: #1e3a8a;
+  font-size: 18px;
   margin: 0;
 }
 
@@ -535,19 +536,20 @@ button.pill {
 }
 
 .ocr-edit-form textarea {
-  border: 1px solid #cbd5e1;
+  background: #fff;
+  border: 1px solid #94a3b8;
   border-radius: 10px;
   color: #0f172a;
   font: inherit;
   line-height: 1.65;
-  min-height: 260px;
+  min-height: 360px;
   padding: 12px;
   resize: vertical;
   width: 100%;
 }
 
 .ocr-edit-form button {
-  background: #0f172a;
+  background: #2563eb;
   border: 0;
   border-radius: 10px;
   color: #fff;

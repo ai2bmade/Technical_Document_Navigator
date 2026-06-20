@@ -254,6 +254,18 @@
                     <figcaption>Original PDF page {{ selected_page }}</figcaption>
                   </figure>
 
+                  {% if mode == 'manual_admin' %}
+                  <form class="ocr-edit-form" action="/save-ocr-page-form" method="post">
+                    <h2>OCR / Extracted Text Editor</h2>
+                    <p>이 칸이 현재 페이지의 OCR 결과 원문입니다. 여기서 직접 고친 뒤 저장하면 검색용 텍스트와 Preview에 등록된 같은 페이지 문구도 함께 갱신됩니다.</p>
+                    <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                    <input type="hidden" name="page" value="{{ selected_page }}">
+                    <textarea name="corrected_text" rows="14">{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}
+
+{% endif %}{% endfor %}</textarea>
+                    <button type="submit">Save Corrected Text</button>
+                  </form>
+                  {% else %}
                   <div class="ocr-text-panel">
                     <h2>OCR / Extracted Text</h2>
                     {% if page_chunks %}
@@ -266,18 +278,6 @@
                       <p>No text chunk was found for this page.</p>
                     {% endif %}
                   </div>
-
-                  {% if mode == 'manual_admin' %}
-                  <form class="ocr-edit-form" action="/save-ocr-page-form" method="post">
-                    <h2>Edit OCR Text</h2>
-                    <p>이 페이지의 OCR 텍스트를 직접 고친 뒤 저장합니다. 저장하면 위의 OCR 텍스트와 Preview에 등록된 같은 페이지 문구도 함께 갱신됩니다.</p>
-                    <input type="hidden" name="document_id" value="{{ selected_document.id }}">
-                    <input type="hidden" name="page" value="{{ selected_page }}">
-                    <textarea name="corrected_text" rows="14">{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}
-
-{% endif %}{% endfor %}</textarea>
-                    <button type="submit">Save Corrected Text</button>
-                  </form>
                   {% endif %}
                 </section>
                 {% else %}
