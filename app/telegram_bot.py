@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import io
 import logging
 
@@ -183,11 +182,16 @@ async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def answer_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     question = update.message.text or ""
     source_document_id = context.user_data.get("source_document_id")
+    if not source_document_id:
+        await update.message.reply_text(
+            "먼저 /manuals 로 매뉴얼을 고른 뒤 질문해 주세요."
+        )
+        return
     result = answer_question(question, int(source_document_id) if source_document_id else None)
     await update.message.reply_text(result["answer"][:3900])
 
 
-async def main() -> None:
+def main() -> None:
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured.")
     init_db()
@@ -199,8 +203,8 @@ async def main() -> None:
     application.add_handler(CallbackQueryHandler(page_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer_message))
     LOGGER.info("Telegram customer manual viewer started")
-    await application.run_polling()
+    application.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

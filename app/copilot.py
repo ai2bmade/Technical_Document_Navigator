@@ -190,6 +190,21 @@ def evidence_candidates(document_id: int, queries: list[str], limit: int = 3) ->
     return evidence[:12]
 
 
+def ensure_korean_first_report(report: str, report_type: str) -> str:
+    hangul_count = len(re.findall(r"[가-힣]", report))
+    latin_count = len(re.findall(r"[A-Za-z]", report))
+    if hangul_count >= 80 or hangul_count >= latin_count:
+        return report
+    instructions = (
+        "당신은 산업 기술 문서를 한국어 리포트로 정리하는 편집자입니다. "
+        "아래 리포트를 한국어를 최우선으로 하는 자연스러운 기술 리포트로 다시 작성하세요. "
+        "모델명, 단위, 제품명, 원문 기술 표기는 필요하면 원문 그대로 유지합니다. "
+        "내용을 추가로 추측하지 말고 기존 리포트의 의미를 보존하세요."
+    )
+    prompt = f"리포트 유형: {report_type}\n\n원문 리포트:\n{report}"
+    return generate_text(instructions, prompt)
+
+
 def analyze_spec(document_id: int) -> dict[str, object]:
     extracted: dict[str, list[dict[str, object]]] = {}
     for field, terms in SPEC_FIELDS.items():
@@ -216,7 +231,9 @@ def analyze_spec(document_id: int) -> dict[str, object]:
 
     filename = document_filename(document_id)
     instructions = (
-        "당신은 산업 설비 스펙시트 검토 전문가입니다. 답변은 반드시 한국어로 작성합니다. "
+        "당신은 산업 설비 스펙시트 검토 전문가입니다. 설명과 분석은 한국어를 최우선으로 작성합니다. "
+        "제목, 표 헤더, 항목명, 결론, 확인 질문은 가능한 한 자연스러운 한국어로 작성합니다. "
+        "모델명, 단위, 원문에 적힌 장비명, 부품명, 기술 표기는 원문 표기를 유지할 수 있습니다. "
         "OCR 원문에 있는 정보만 근거로 삼고, 없는 값은 추측하지 말고 '확인 필요'로 표시합니다. "
         "숫자, 단위, 모델명, 전원, 치수, 용량, 온도 조건은 원문과 다르게 바꾸지 않습니다. "
         "결과는 전문가가 바로 검토할 수 있는 정제된 분석 리포트여야 하며, 단순 요약이나 원문 나열을 하지 않습니다."
@@ -224,6 +241,7 @@ def analyze_spec(document_id: int) -> dict[str, object]:
     prompt = (
         f"문서명: {filename}\n\n"
         "아래 OCR 텍스트를 바탕으로 스펙시트 정밀 분석 리포트를 작성하세요.\n\n"
+        "중요: 리포트 설명은 한국어를 최우선으로 하되, 모델명/단위/제품명/원문 기술 표기는 그대로 유지해도 됩니다.\n\n"
         "반드시 다음 구조로 작성하세요:\n"
         "1. 핵심 판정\n"
         "2. 확인된 주요 사양 표: 항목 / 값 / 단위 / 근거 페이지 / 신뢰도\n"
@@ -235,7 +253,10 @@ def analyze_spec(document_id: int) -> dict[str, object]:
         "신뢰도는 '높음/중간/낮음'으로 표시하세요. OCR이 깨진 값은 후보를 단정하지 말고 확인 질문으로 빼세요.\n\n"
         f"OCR 텍스트:\n{context}"
     )
-    report = generate_text(instructions, prompt)
+    report = ensure_korean_first_report(
+        generate_text(instructions, prompt),
+        "스펙시트 정밀 분석",
+    )
     return {
         "document_id": document_id,
         "report": report,
@@ -286,13 +307,16 @@ def review_layout(document_id: int) -> dict[str, object]:
 
     filename = document_filename(document_id)
     instructions = (
-        "당신은 산업 설비 배치도와 설치 레이아웃을 검토하는 기술 검토자입니다. 답변은 반드시 한국어로 작성합니다. "
+        "당신은 산업 설비 배치도와 설치 레이아웃을 검토하는 기술 검토자입니다. 설명과 분석은 한국어를 최우선으로 작성합니다. "
+        "제목, 표 헤더, 항목명, 결론, 확인 질문은 가능한 한 자연스러운 한국어로 작성합니다. "
+        "모델명, 단위, 도면 표기, 장비명, 기술 표기는 원문 표기를 유지할 수 있습니다. "
         "OCR 원문과 도면 텍스트에 있는 내용만 근거로 삼고, 도면에서 확인되지 않는 내용은 추측하지 않습니다. "
         "문제점 후보, 누락 정보, 현장 확인 질문을 분리해서 제시합니다. 최종 승인은 엔지니어가 해야 함을 명시합니다."
     )
     prompt = (
         f"문서명: {filename}\n\n"
         "아래 OCR 텍스트를 바탕으로 레이아웃/설치 검토 리포트를 작성하세요.\n\n"
+        "중요: 리포트 설명은 한국어를 최우선으로 하되, 모델명/단위/도면 표기/원문 기술 표기는 그대로 유지해도 됩니다.\n\n"
         "반드시 다음 구조로 작성하세요:\n"
         "1. 전체 판정\n"
         "2. 확인된 배치/설치 조건\n"
@@ -305,7 +329,10 @@ def review_layout(document_id: int) -> dict[str, object]:
         "심각도는 '높음/중간/낮음'으로 표시하세요. OCR이 불명확하면 단정하지 말고 확인 필요로 표시하세요.\n\n"
         f"OCR 텍스트:\n{context}"
     )
-    report = generate_text(instructions, prompt)
+    report = ensure_korean_first_report(
+        generate_text(instructions, prompt),
+        "레이아웃 문제점 검토",
+    )
     return {
         "document_id": document_id,
         "notice": "AI 분석 결과입니다. 최종 승인과 안전 판단은 반드시 자격 있는 엔지니어가 수행해야 합니다.",
