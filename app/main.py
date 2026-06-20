@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 from tempfile import NamedTemporaryFile
@@ -81,6 +82,47 @@ def workspace_for_mode(mode: str) -> str:
     if mode == "layout":
         return "layout"
     return "manual"
+
+
+def save_analysis_report(document_id: int, report_type: str, result: dict[str, object]) -> None:
+    with db() as conn:
+        conn.execute(
+            """
+            insert into analysis_reports(document_id, report_type, report, payload_json)
+            values (?, ?, ?, ?)
+            """,
+            (
+                document_id,
+                report_type,
+                str(result.get("report") or ""),
+                json.dumps(result, ensure_ascii=False),
+            ),
+        )
+
+
+def latest_analysis_report(document_id: int | None, report_type: str) -> dict[str, object] | None:
+    if document_id is None:
+        return None
+    with db() as conn:
+        row = conn.execute(
+            """
+            select payload_json, report, created_at
+            from analysis_reports
+            where document_id = ? and report_type = ?
+            order by id desc
+            limit 1
+            """,
+            (document_id, report_type),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        payload = json.loads(row["payload_json"] or "{}")
+    except json.JSONDecodeError:
+        payload = {"report": row["report"]}
+    payload["saved_at"] = row["created_at"]
+    payload["saved"] = True
+    return payload
 
 
 def load_workspace(
@@ -217,6 +259,14 @@ def load_workspace(
         "product_manuals": product_manuals,
         "selected_manual": selected_manual,
         "selected_manual_page": selected_manual_page,
+        "saved_spec_result": latest_analysis_report(
+            selected_document["id"] if selected_document and mode == "spec" else None,
+            "spec",
+        ),
+        "saved_layout_result": latest_analysis_report(
+            selected_document["id"] if selected_document and mode == "layout" else None,
+            "layout",
+        ),
     }
 
 
@@ -526,7 +576,9 @@ def ask(payload: AskRequest) -> dict[str, object]:
 @app.post("/api/spec/analyze")
 def spec_analyze(payload: AnalyzeRequest) -> dict[str, object]:
     try:
-        return analyze_spec(payload.document_id)
+        result = analyze_spec(payload.document_id)
+        save_analysis_report(payload.document_id, "spec", result)
+        return result
     except OpenAIUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -534,7 +586,9 @@ def spec_analyze(payload: AnalyzeRequest) -> dict[str, object]:
 @app.post("/api/layout/review")
 def layout_review(payload: AnalyzeRequest) -> dict[str, object]:
     try:
-        return review_layout(payload.document_id)
+        result = review_layout(payload.document_id)
+        save_analysis_report(payload.document_id, "layout", result)
+        return result
     except OpenAIUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -555,6 +609,7 @@ def spec_review_form(
             "evidence": [],
             "engine": "unavailable",
         }
+    save_analysis_report(document_id, "spec", result)
     workspace = load_workspace(document_id, page, mode="spec")
     return templates.TemplateResponse(
         "index.html",
@@ -583,6 +638,7 @@ def layout_review_form(
             "checks": [],
             "engine": "unavailable",
         }
+    save_analysis_report(document_id, "layout", result)
     workspace = load_workspace(document_id, page, mode="layout")
     return templates.TemplateResponse(
         "index.html",

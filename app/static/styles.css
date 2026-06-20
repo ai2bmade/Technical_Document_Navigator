@@ -826,6 +826,11 @@ button.pill {
   display: none;
 }
 
+.mode-spec .assistant > .quick,
+.mode-layout .assistant > .quick {
+  display: none !important;
+}
+
 @media (max-width: 1120px) {
   .workspace {
     grid-template-columns: 260px minmax(0, 1fr);

@@ -33,6 +33,15 @@ create table if not exists questions (
   created_at text not null default current_timestamp
 );
 
+create table if not exists analysis_reports (
+  id integer primary key autoincrement,
+  document_id integer not null references documents(id) on delete cascade,
+  report_type text not null,
+  report text not null,
+  payload_json text,
+  created_at text not null default current_timestamp
+);
+
 create table if not exists product_families (
   id integer primary key autoincrement,
   slug text not null unique,

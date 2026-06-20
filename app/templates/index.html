@@ -35,7 +35,7 @@
         {% endif %}
       </header>
 
-      <main class="workspace {% if mode == 'preview' and view == 'original' %}original-workspace{% endif %}">
+      <main class="workspace mode-{{ mode }} {% if mode == 'preview' and view == 'original' %}original-workspace{% endif %}">
         <aside class="panel sidebar">
           {% if mode == 'preview' %}
           <div class="sidebar-head">
@@ -401,6 +401,7 @@
           </form>
           {% endif %}
 
+          {% if false %}
           <div class="quick">
             <form action="/quick-form" method="post">
               <input type="hidden" name="document_id" value="{{ selected_document.id }}">
@@ -432,6 +433,7 @@
             </form>
           </div>
           {% endif %}
+          {% endif %}
 
           <div class="summary-card">
             <h3>Current Context</h3>
@@ -452,7 +454,7 @@
             </ul>
           </div>
 
-          <div class="chat {% if not question and not result and not quick_result and not spec_result and not layout_result %}idle{% endif %}">
+          <div class="chat {% if not question and not result and not quick_result and not spec_result and not layout_result and not saved_spec_result and not saved_layout_result %}idle{% endif %}">
             {% if question %}
             <div class="msg user">{{ question }}</div>
             {% endif %}
@@ -496,6 +498,48 @@
                 <p>{{ layout_result.report }}</p>
               </section>
               {% for check in layout_result["checks"] %}
+              <section>
+                <h4>{{ check.name.replace('_', ' ')|title }}</h4>
+                <p>{{ check.instruction }}</p>
+                {% if check.evidence %}
+                  {% for hit in check.evidence %}
+                  <p>{{ hit.excerpt }}</p>
+                  <div class="source">Page {{ hit.page_number }} · score {{ hit.score }}</div>
+                  {% endfor %}
+                {% else %}
+                <p>관련 근거를 찾지 못했습니다. 원본 도면 확인이 필요합니다.</p>
+                {% endif %}
+              </section>
+              {% endfor %}
+            </div>
+            {% elif saved_spec_result %}
+            <div class="review-result">
+              <h3>저장된 스펙 정밀 분석 결과</h3>
+              <section class="analysis-report">
+                <h4>정밀 분석 리포트</h4>
+                <p>{{ saved_spec_result.report }}</p>
+                <div class="source">Saved at {{ saved_spec_result.saved_at }}</div>
+              </section>
+              {% if saved_spec_result.evidence %}
+              <section>
+                <h4>근거 후보</h4>
+                {% for hit in saved_spec_result.evidence %}
+                <p>{{ hit.excerpt }}</p>
+                <div class="source">Page {{ hit.page_number }} · score {{ hit.score }}</div>
+                {% endfor %}
+              </section>
+              {% endif %}
+            </div>
+            {% elif saved_layout_result %}
+            <div class="review-result">
+              <h3>저장된 레이아웃 문제점 검토 결과</h3>
+              <p>{{ saved_layout_result["notice"] }}</p>
+              <section class="analysis-report">
+                <h4>정밀 검토 리포트</h4>
+                <p>{{ saved_layout_result.report }}</p>
+                <div class="source">Saved at {{ saved_layout_result.saved_at }}</div>
+              </section>
+              {% for check in saved_layout_result["checks"] %}
               <section>
                 <h4>{{ check.name.replace('_', ' ')|title }}</h4>
                 <p>{{ check.instruction }}</p>

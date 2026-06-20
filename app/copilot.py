@@ -148,8 +148,8 @@ def answer_question_with_ai(
 ) -> dict[str, object]:
     hits = search(question, document_id=document_id, limit=6)
     language_name = ANSWER_LANGUAGE_NAMES.get(language.lower(), language)
+    context = document_context(document_id, max_chars=14000) if document_id else ""
     if not hits:
-        context = document_context(document_id, max_chars=9000) if document_id else ""
         if context:
             answer = generate_text(
                 (
@@ -193,16 +193,20 @@ def answer_question_with_ai(
         )
     instructions = (
         "You are a high-quality customer-support assistant for an industrial product manual. "
-        f"Answer in {language_name}. Use only the provided evidence from the selected manual. "
-        "If the evidence is incomplete or the customer asks something unrelated, say so clearly and do not guess. "
+        f"Answer in {language_name}. Use the selected manual context as the primary source, and use search hits only as hints. "
+        "First understand the customer's intent semantically. Do not blindly repeat the top search hit if it does not answer the question. "
+        "If the manual context is incomplete or the customer asks something unrelated, say so clearly and do not guess. "
         "Preserve model names, numbers, units, warning words, and button labels exactly when they appear in the evidence. "
-        "Give a practical answer customers can use, and include evidence page references at the end."
+        "Give a practical answer customers can use. Include page references only when the page marker or search hit supports them."
     )
     prompt = (
         f"Customer question:\n{question}\n\n"
-        "Manual evidence:\n"
+        "Selected manual broader context:\n"
+        f"{context}\n\n"
+        "Focused search candidates, which may be imperfect:\n"
         + "\n\n".join(evidence_blocks)
         + "\n\n"
+        "Important: if the focused search candidates are about a different feature than the customer's question, ignore those candidates and use the broader context.\n\n"
         "Return format:\n"
         "1. Direct answer\n"
         "2. Important caution or limitation, if any\n"
