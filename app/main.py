@@ -5,7 +5,7 @@ import subprocess
 from tempfile import NamedTemporaryFile
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.copilot import analyze_spec, answer_question, review_layout, translation_workflow
 from app.ocr import run_ocr_for_document
+from app.page_images import render_page_png
 from app.pdf_ingest import ingest_pdf
 from app.storage import db, init_db
 
@@ -100,6 +101,17 @@ def index(request: Request, document_id: int | None = None) -> HTMLResponse:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/documents/{document_id}/pages/{page_number}.png")
+def document_page_image(document_id: int, page_number: int) -> Response:
+    try:
+        image = render_page_png(document_id, page_number)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(content=image, media_type="image/png")
 
 
 @app.get("/api/documents")

@@ -18,7 +18,7 @@
         </div>
         <nav class="nav">
           <span class="active">Manual</span>
-          <span>Specification</span>
+          <span>Spec Sheet Review</span>
           <span>Layout Review</span>
           <span>Admin</span>
         </nav>
@@ -111,6 +111,10 @@
                 {% for chunk in chunks[:8] %}
                 <section class="manual-section" id="page-{{ chunk.page_number }}">
                   <h2>Page {{ chunk.page_number }}{% if chunk.section_title %} · {{ chunk.section_title }}{% endif %}</h2>
+                  <figure class="page-image">
+                    <img src="/documents/{{ selected_document.id }}/pages/{{ chunk.page_number }}.png" alt="{{ selected_document.filename }} page {{ chunk.page_number }}">
+                    <figcaption>Original PDF page {{ chunk.page_number }}</figcaption>
+                  </figure>
                   <p>{{ chunk.content }}</p>
                 </section>
                 {% endfor %}

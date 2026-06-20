@@ -358,6 +358,32 @@ button.pill {
   margin-bottom: 12px;
 }
 
+.page-image {
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  margin: 0 0 18px;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.page-image img {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  display: block;
+  height: auto;
+  max-width: 100%;
+  width: 100%;
+}
+
+.page-image figcaption {
+  color: #64748b;
+  font-size: 12px;
+  margin-top: 8px;
+  text-align: center;
+}
+
 .manual-section p {
   color: #334155;
   font-size: 15px;
