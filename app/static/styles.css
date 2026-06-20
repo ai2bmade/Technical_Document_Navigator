@@ -722,6 +722,18 @@ button.pill {
   margin: 0 0 8px;
 }
 
+.review-result .analysis-report {
+  background: #f8fafc;
+  border-color: #bfdbfe;
+}
+
+.review-result .analysis-report p {
+  color: #0f172a;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
 .chat {
   display: flex;
   flex: 1;

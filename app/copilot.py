@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from app.openai_service import generate_text
 from app.retrieval import Hit, search
 from app.storage import db
 
@@ -136,6 +137,59 @@ SPEC_FIELDS = {
 }
 
 
+def document_context(document_id: int, max_chars: int = 18000) -> str:
+    with db() as conn:
+        rows = conn.execute(
+            """
+            select page_number, content
+            from chunks
+            where document_id = ?
+            order by page_number, id
+            """,
+            (document_id,),
+        ).fetchall()
+    parts: list[str] = []
+    total = 0
+    for row in rows:
+        content = row["content"].strip()
+        if not content:
+            continue
+        block = f"[p.{row['page_number']}]\n{content}"
+        if total + len(block) > max_chars:
+            break
+        parts.append(block)
+        total += len(block)
+    return "\n\n".join(parts)
+
+
+def document_filename(document_id: int) -> str:
+    with db() as conn:
+        row = conn.execute(
+            "select filename from documents where id = ?",
+            (document_id,),
+        ).fetchone()
+    return row["filename"] if row else f"document #{document_id}"
+
+
+def evidence_candidates(document_id: int, queries: list[str], limit: int = 3) -> list[dict[str, object]]:
+    seen: set[tuple[int, str]] = set()
+    evidence: list[dict[str, object]] = []
+    for query in queries:
+        for hit in search(query, document_id=document_id, limit=limit):
+            key = (hit.page_number, hit.content[:120])
+            if key in seen:
+                continue
+            seen.add(key)
+            evidence.append(
+                {
+                    "page_number": hit.page_number,
+                    "excerpt": compact_text(hit.content, 500),
+                    "score": round(hit.score, 4),
+                }
+            )
+    return evidence[:12]
+
+
 def analyze_spec(document_id: int) -> dict[str, object]:
     extracted: dict[str, list[dict[str, object]]] = {}
     for field, terms in SPEC_FIELDS.items():
@@ -149,7 +203,53 @@ def analyze_spec(document_id: int) -> dict[str, object]:
             }
             for hit in hits
         ]
-    return {"document_id": document_id, "fields": extracted}
+
+    context = document_context(document_id)
+    if not context:
+        return {
+            "document_id": document_id,
+            "report": "OCR 또는 텍스트 추출 결과가 없어 정밀 분석을 실행할 수 없습니다. 먼저 OCR을 실행해 주세요.",
+            "fields": extracted,
+            "evidence": [],
+            "engine": "none",
+        }
+
+    filename = document_filename(document_id)
+    instructions = (
+        "당신은 산업 설비 스펙시트 검토 전문가입니다. 답변은 반드시 한국어로 작성합니다. "
+        "OCR 원문에 있는 정보만 근거로 삼고, 없는 값은 추측하지 말고 '확인 필요'로 표시합니다. "
+        "숫자, 단위, 모델명, 전원, 치수, 용량, 온도 조건은 원문과 다르게 바꾸지 않습니다. "
+        "결과는 전문가가 바로 검토할 수 있는 정제된 분석 리포트여야 하며, 단순 요약이나 원문 나열을 하지 않습니다."
+    )
+    prompt = (
+        f"문서명: {filename}\n\n"
+        "아래 OCR 텍스트를 바탕으로 스펙시트 정밀 분석 리포트를 작성하세요.\n\n"
+        "반드시 다음 구조로 작성하세요:\n"
+        "1. 핵심 판정\n"
+        "2. 확인된 주요 사양 표: 항목 / 값 / 단위 / 근거 페이지 / 신뢰도\n"
+        "3. 설치/운영 조건 해석\n"
+        "4. 숫자·단위 검증 포인트\n"
+        "5. 누락되었거나 불명확한 정보\n"
+        "6. 담당자에게 물어봐야 할 확인 질문\n"
+        "7. 리스크 및 다음 액션\n\n"
+        "신뢰도는 '높음/중간/낮음'으로 표시하세요. OCR이 깨진 값은 후보를 단정하지 말고 확인 질문으로 빼세요.\n\n"
+        f"OCR 텍스트:\n{context}"
+    )
+    report = generate_text(instructions, prompt)
+    return {
+        "document_id": document_id,
+        "report": report,
+        "fields": extracted,
+        "evidence": evidence_candidates(
+            document_id,
+            [
+                "model capacity dimensions power voltage temperature manufacturer",
+                "installation space clearance foundation utility",
+                "kg mm kw hp rpm hz dimensions capacity",
+            ],
+        ),
+        "engine": "openai",
+    }
 
 
 def review_layout(document_id: int) -> dict[str, object]:
@@ -159,24 +259,59 @@ def review_layout(document_id: int) -> dict[str, object]:
         ("utility_connections", "Identify power, air, fuel, exhaust, and ventilation needs."),
         ("missing_dimensions", "Flag any unclear or missing dimensions for engineer review."),
     ]
+    evidence = [
+        {
+            "name": name,
+            "instruction": instruction,
+            "evidence": [
+                {
+                    "page_number": hit.page_number,
+                    "excerpt": hit.content[:500],
+                    "score": round(hit.score, 4),
+                }
+                for hit in search(instruction, document_id=document_id, limit=2)
+            ],
+        }
+        for name, instruction in checks
+    ]
+    context = document_context(document_id)
+    if not context:
+        return {
+            "document_id": document_id,
+            "notice": "OCR 또는 텍스트 추출 결과가 없어 레이아웃 정밀 검토를 실행할 수 없습니다.",
+            "report": "먼저 OCR을 실행한 뒤 다시 Layout Check를 실행해 주세요.",
+            "checks": evidence,
+            "engine": "none",
+        }
+
+    filename = document_filename(document_id)
+    instructions = (
+        "당신은 산업 설비 배치도와 설치 레이아웃을 검토하는 기술 검토자입니다. 답변은 반드시 한국어로 작성합니다. "
+        "OCR 원문과 도면 텍스트에 있는 내용만 근거로 삼고, 도면에서 확인되지 않는 내용은 추측하지 않습니다. "
+        "문제점 후보, 누락 정보, 현장 확인 질문을 분리해서 제시합니다. 최종 승인은 엔지니어가 해야 함을 명시합니다."
+    )
+    prompt = (
+        f"문서명: {filename}\n\n"
+        "아래 OCR 텍스트를 바탕으로 레이아웃/설치 검토 리포트를 작성하세요.\n\n"
+        "반드시 다음 구조로 작성하세요:\n"
+        "1. 전체 판정\n"
+        "2. 확인된 배치/설치 조건\n"
+        "3. 문제점 후보 체크리스트: 항목 / 문제 가능성 / 근거 페이지 / 심각도 / 확인 방법\n"
+        "4. 치수·간격·동선·서비스 공간 검토\n"
+        "5. 전원/배관/배기/환기/접근성 등 유틸리티 검토\n"
+        "6. 누락되었거나 읽기 어려운 정보\n"
+        "7. 현장 담당자 또는 엔지니어에게 물어볼 질문\n"
+        "8. 다음 액션\n\n"
+        "심각도는 '높음/중간/낮음'으로 표시하세요. OCR이 불명확하면 단정하지 말고 확인 필요로 표시하세요.\n\n"
+        f"OCR 텍스트:\n{context}"
+    )
+    report = generate_text(instructions, prompt)
     return {
         "document_id": document_id,
-        "notice": "Assistant review only. Final approval must remain with a qualified engineer.",
-        "checks": [
-            {
-                "name": name,
-                "instruction": instruction,
-                "evidence": [
-                    {
-                        "page_number": hit.page_number,
-                        "excerpt": hit.content[:500],
-                        "score": round(hit.score, 4),
-                    }
-                    for hit in search(instruction, document_id=document_id, limit=2)
-                ],
-            }
-            for name, instruction in checks
-        ],
+        "notice": "AI 분석 결과입니다. 최종 승인과 안전 판단은 반드시 자격 있는 엔지니어가 수행해야 합니다.",
+        "report": report,
+        "checks": evidence,
+        "engine": "openai",
     }
 
 

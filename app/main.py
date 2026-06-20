@@ -525,12 +525,18 @@ def ask(payload: AskRequest) -> dict[str, object]:
 
 @app.post("/api/spec/analyze")
 def spec_analyze(payload: AnalyzeRequest) -> dict[str, object]:
-    return analyze_spec(payload.document_id)
+    try:
+        return analyze_spec(payload.document_id)
+    except OpenAIUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/layout/review")
 def layout_review(payload: AnalyzeRequest) -> dict[str, object]:
-    return review_layout(payload.document_id)
+    try:
+        return review_layout(payload.document_id)
+    except OpenAIUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/spec-review-form", response_class=HTMLResponse)
@@ -539,7 +545,16 @@ def spec_review_form(
     document_id: int = Form(...),
     page: int = Form(1),
 ) -> HTMLResponse:
-    result = analyze_spec(document_id)
+    try:
+        result = analyze_spec(document_id)
+    except OpenAIUnavailable as exc:
+        result = {
+            "document_id": document_id,
+            "report": f"AI 정밀 분석을 실행할 수 없습니다: {exc}",
+            "fields": {},
+            "evidence": [],
+            "engine": "unavailable",
+        }
     workspace = load_workspace(document_id, page, mode="spec")
     return templates.TemplateResponse(
         "index.html",
@@ -558,7 +573,16 @@ def layout_review_form(
     document_id: int = Form(...),
     page: int = Form(1),
 ) -> HTMLResponse:
-    result = review_layout(document_id)
+    try:
+        result = review_layout(document_id)
+    except OpenAIUnavailable as exc:
+        result = {
+            "document_id": document_id,
+            "notice": "AI 정밀 분석을 실행할 수 없습니다.",
+            "report": str(exc),
+            "checks": [],
+            "engine": "unavailable",
+        }
     workspace = load_workspace(document_id, page, mode="layout")
     return templates.TemplateResponse(
         "index.html",
