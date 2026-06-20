@@ -22,8 +22,9 @@
           <a class="{% if mode == 'layout' %}active{% endif %}" href="/?mode=layout">Layout Review</a>
           <a class="{% if mode == 'preview' %}active{% endif %}" href="/?mode=preview">Preview</a>
         </nav>
-        {% if mode == 'manual_admin' %}
+        {% if mode != 'preview' %}
         <form class="top-upload" action="/upload-form" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="mode" value="{{ mode }}">
           <label class="file-button">
             + Upload
             <input type="file" name="file" accept="application/pdf" onchange="this.form.submit()">
@@ -56,7 +57,7 @@
             <h3>Page Navigator</h3>
             {% if selected_manual %}
               {% for page_number in range(1, selected_manual.page_count + 1) %}
-              <a class="toc-item {% if page_number == selected_page %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ page_number }}">
+              <a class="toc-item {% if page_number == selected_page %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ page_number }}&view={{ view }}">
                 <span class="num">{{ page_number }}</span>
                 <span>Page {{ page_number }}</span>
               </a>
@@ -175,29 +176,36 @@
 
                 <div class="page-controls">
                   {% if previous_page %}
-                  <a class="page-button" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ previous_page }}">Prev</a>
+                  <a class="page-button" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ previous_page }}&view={{ view }}">Prev</a>
                   {% else %}
                   <span class="page-button disabled">Prev</span>
                   {% endif %}
                   <span class="page-current">Page {{ selected_page }}</span>
                   {% if next_page %}
-                  <a class="page-button" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ next_page }}">Next</a>
+                  <a class="page-button" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ next_page }}&view={{ view }}">Next</a>
                   {% else %}
                   <span class="page-button disabled">Next</span>
                   {% endif %}
                 </div>
 
+                <div class="view-switch">
+                  <a class="{% if view != 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=manual">Manual Text</a>
+                  <a class="{% if view == 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=original">Original Enlarged</a>
+                </div>
+
                 <section class="manual-section">
                   {% if selected_manual.source_document_id %}
-                  <figure class="page-image single-page">
+                  <figure class="page-image single-page {% if view == 'original' %}zoom-page{% endif %}">
                     <img src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
                     <figcaption>Original source page {{ selected_page }}</figcaption>
                   </figure>
                   {% endif %}
+                  {% if view != 'original' %}
                   <div class="ocr-text-panel customer-copy">
                     <h2>Published Manual Text</h2>
                     <p>{{ selected_manual_page.published_text or selected_manual_page.ai_corrected_text or selected_manual_page.raw_ocr_text or '아직 공개용 문구가 없습니다.' }}</p>
                   </div>
+                  {% endif %}
                 </section>
                 {% else %}
                 <section class="manual-section">
@@ -255,6 +263,18 @@
                       <p>No text chunk was found for this page.</p>
                     {% endif %}
                   </div>
+
+                  {% if mode == 'manual_admin' %}
+                  <form class="ocr-edit-form" action="/save-ocr-page-form" method="post">
+                    <h2>Edit OCR Text</h2>
+                    <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                    <input type="hidden" name="page" value="{{ selected_page }}">
+                    <textarea name="corrected_text" rows="14">{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}
+
+{% endif %}{% endfor %}</textarea>
+                    <button type="submit">Save Corrected Text</button>
+                  </form>
+                  {% endif %}
                 </section>
                 {% else %}
                 <section class="manual-section">
@@ -312,6 +332,7 @@
               <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
               <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
               <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="view" value="{{ view }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="summary">
               <button type="submit">현재 페이지 요약</button>
@@ -320,6 +341,7 @@
               <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
               <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
               <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="view" value="{{ view }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="easy">
               <button type="submit">쉽게 설명</button>
@@ -328,6 +350,7 @@
               <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
               <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
               <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="view" value="{{ view }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="warnings">
               <button type="submit">주의사항</button>
@@ -336,9 +359,43 @@
               <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
               <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
               <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="view" value="{{ view }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="specs">
               <button type="submit">수치/사양 후보</button>
+            </form>
+          </div>
+          {% endif %}
+
+          {% if (mode == 'spec' or mode == 'layout') and selected_document %}
+          <div class="quick">
+            <form action="/quick-form" method="post">
+              <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+              <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="page" value="{{ selected_page }}">
+              <input type="hidden" name="action" value="summary">
+              <button type="submit">{% if mode == 'spec' %}스펙 요약{% else %}레이아웃 요약{% endif %}</button>
+            </form>
+            <form action="/quick-form" method="post">
+              <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+              <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="page" value="{{ selected_page }}">
+              <input type="hidden" name="action" value="easy">
+              <button type="submit">한글로 쉽게 설명</button>
+            </form>
+            <form action="/quick-form" method="post">
+              <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+              <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="page" value="{{ selected_page }}">
+              <input type="hidden" name="action" value="warnings">
+              <button type="submit">주의/리스크</button>
+            </form>
+            <form action="/quick-form" method="post">
+              <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+              <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="page" value="{{ selected_page }}">
+              <input type="hidden" name="action" value="specs">
+              <button type="submit">{% if mode == 'spec' %}수치/사양 후보{% else %}치수/배치 후보{% endif %}</button>
             </form>
           </div>
           {% endif %}
@@ -402,6 +459,7 @@
             <input type="hidden" name="document_id" value="{{ selected_document.id }}">
             {% endif %}
             <input type="hidden" name="mode" value="{{ mode }}">
+            <input type="hidden" name="view" value="{{ view }}">
             <input type="hidden" name="page" value="{{ selected_page }}">
             <input name="question" placeholder="Ask about the selected document..." required>
             <button type="submit">Send</button>

@@ -80,6 +80,7 @@ def load_workspace(
     page: int = 1,
     mode: str = "manual_admin",
     manual_version_id: int | None = None,
+    view: str = "manual",
 ) -> dict[str, object]:
     valid_modes = {"manual_admin", "spec", "layout", "preview"}
     if mode not in valid_modes:
@@ -183,6 +184,7 @@ def load_workspace(
                 ).fetchone()
     return {
         "mode": mode,
+        "view": view if view in {"manual", "original"} else "manual",
         "documents": documents,
         "selected_document": selected_document,
         "selected_page": selected_page,
@@ -208,8 +210,9 @@ def index(
     page: int = 1,
     mode: str = "manual_admin",
     manual_version_id: int | None = None,
+    view: str = "manual",
 ) -> HTMLResponse:
-    workspace = load_workspace(document_id, page, mode, manual_version_id)
+    workspace = load_workspace(document_id, page, mode, manual_version_id, view)
     return templates.TemplateResponse(
         "index.html",
         {"request": request, "app_name": settings.app_name, **workspace},
@@ -268,7 +271,11 @@ async def upload_document(file: UploadFile = File(...)) -> dict[str, object]:
 
 
 @app.post("/upload-form", response_class=HTMLResponse)
-async def upload_form(request: Request, file: UploadFile = File(...)) -> HTMLResponse:
+async def upload_form(
+    request: Request,
+    file: UploadFile = File(...),
+    mode: str = Form("manual_admin"),
+) -> HTMLResponse:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported in MVP.")
     with NamedTemporaryFile(delete=False, suffix=".pdf") as temp:
@@ -279,13 +286,64 @@ async def upload_form(request: Request, file: UploadFile = File(...)) -> HTMLRes
     finally:
         if temp_path.exists():
             temp_path.unlink(missing_ok=True)
-    workspace = load_workspace(document_id)
+    workspace = load_workspace(document_id, mode=mode)
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "app_name": settings.app_name,
             "upload_message": f"Uploaded {file.filename}",
+            **workspace,
+        },
+    )
+
+
+@app.post("/save-ocr-page-form", response_class=HTMLResponse)
+def save_ocr_page_form(
+    request: Request,
+    document_id: int = Form(...),
+    page: int = Form(1),
+    corrected_text: str = Form(""),
+) -> HTMLResponse:
+    text = corrected_text.strip()
+    with db() as conn:
+        document = conn.execute(
+            "select id from documents where id = ?",
+            (document_id,),
+        ).fetchone()
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document was not found.")
+        conn.execute(
+            "delete from chunks where document_id = ? and page_number = ?",
+            (document_id, page),
+        )
+        if text:
+            conn.execute(
+                """
+                insert into chunks(document_id, page_number, section_title, content)
+                values (?, ?, ?, ?)
+                """,
+                (document_id, page, f"Page {page}", text),
+            )
+        conn.execute(
+            """
+            update manual_pages
+            set raw_ocr_text = ?, ai_corrected_text = ?, published_text = ?,
+                status = 'edited', updated_at = current_timestamp
+            where page_number = ?
+              and manual_version_id in (
+                select id from manual_versions where source_document_id = ?
+              )
+            """,
+            (text, text, text, page, document_id),
+        )
+    workspace = load_workspace(document_id, page, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": f"Saved OCR text for page {page}.",
             **workspace,
         },
     )
@@ -454,9 +512,10 @@ def ask_form(
     page: int = Form(1),
     mode: str = Form("manual_admin"),
     manual_version_id: int | None = Form(None),
+    view: str = Form("manual"),
 ) -> HTMLResponse:
     result = answer_question(question, document_id)
-    workspace = load_workspace(document_id, page, mode, manual_version_id)
+    workspace = load_workspace(document_id, page, mode, manual_version_id, view)
     return templates.TemplateResponse(
         "index.html",
         {
@@ -477,8 +536,9 @@ def quick_form(
     page: int = Form(1),
     mode: str = Form("manual_admin"),
     manual_version_id: int | None = Form(None),
+    view: str = Form("manual"),
 ) -> HTMLResponse:
-    workspace = load_workspace(document_id, page, mode, manual_version_id)
+    workspace = load_workspace(document_id, page, mode, manual_version_id, view)
     selected_document = workspace["selected_document"]
     selected_manual_page = workspace["selected_manual_page"]
     if selected_document is None:

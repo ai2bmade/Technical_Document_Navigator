@@ -15,7 +15,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -391,6 +392,30 @@ button.pill {
   color: #1e3a8a;
 }
 
+.view-switch {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin: -6px 0 20px;
+}
+
+.view-switch a {
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 8px 12px;
+  text-decoration: none;
+}
+
+.view-switch a.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
 .manual-section {
   border-bottom: 1px solid #eef2f7;
   margin-bottom: 22px;
@@ -433,6 +458,15 @@ button.pill {
   margin-bottom: 24px;
 }
 
+.zoom-page {
+  margin-left: -20px;
+  margin-right: -20px;
+}
+
+.zoom-page img {
+  border-radius: 8px;
+}
+
 .ocr-text-panel {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
@@ -447,6 +481,43 @@ button.pill {
 
 .customer-copy p {
   white-space: pre-wrap;
+}
+
+.ocr-edit-form {
+  background: #fff;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 18px;
+}
+
+.ocr-edit-form h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.ocr-edit-form textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #0f172a;
+  font: inherit;
+  line-height: 1.65;
+  min-height: 260px;
+  padding: 12px;
+  resize: vertical;
+  width: 100%;
+}
+
+.ocr-edit-form button {
+  background: #0f172a;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 800;
+  justify-self: start;
+  padding: 10px 14px;
 }
 
 .manual-section p {
