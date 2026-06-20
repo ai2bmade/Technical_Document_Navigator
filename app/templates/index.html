@@ -374,6 +374,24 @@
           {% endif %}
 
           {% if (mode == 'spec' or mode == 'layout') and selected_document %}
+          {% if mode == 'spec' %}
+          <form class="admin-form review-action-form" action="/spec-review-form" method="post">
+            <h3>Spec Sheet Analysis</h3>
+            <p>업로드된 스펙시트에서 모델, 용량, 치수, 전원, 온도, 제조사, 설치공간 후보를 페이지 근거와 함께 추출합니다.</p>
+            <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+            <input type="hidden" name="page" value="{{ selected_page }}">
+            <button type="submit">Run Spec Analysis</button>
+          </form>
+          {% else %}
+          <form class="admin-form review-action-form" action="/layout-review-form" method="post">
+            <h3>Layout Problem Check</h3>
+            <p>레이아웃 문서에서 설치공간, 천장 높이, 유틸리티 연결, 누락 치수처럼 엔지니어가 확인해야 할 문제 후보를 찾습니다.</p>
+            <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+            <input type="hidden" name="page" value="{{ selected_page }}">
+            <button type="submit">Run Layout Check</button>
+          </form>
+          {% endif %}
+
           <div class="quick">
             <form action="/quick-form" method="post">
               <input type="hidden" name="document_id" value="{{ selected_document.id }}">
@@ -425,7 +443,7 @@
             </ul>
           </div>
 
-          <div class="chat {% if not question and not result and not quick_result %}idle{% endif %}">
+          <div class="chat {% if not question and not result and not quick_result and not spec_result and not layout_result %}idle{% endif %}">
             {% if question %}
             <div class="msg user">{{ question }}</div>
             {% endif %}
@@ -441,6 +459,42 @@
               {{ result.answer }}
               {% for item in result.evidence %}
               <div class="source">Evidence: {{ item.filename }} · Page {{ item.page_number }}</div>
+              {% endfor %}
+            </div>
+            {% elif spec_result %}
+            <div class="review-result">
+              <h3>Spec Sheet Analysis Result</h3>
+              {% for field, hits in spec_result["fields"].items() %}
+              <section>
+                <h4>{{ field.replace('_', ' ')|title }}</h4>
+                {% if hits %}
+                  {% for hit in hits %}
+                  <p>{{ hit.excerpt }}</p>
+                  <div class="source">Page {{ hit.page_number }} · score {{ hit.score }}</div>
+                  {% endfor %}
+                {% else %}
+                <p>확인 가능한 후보를 찾지 못했습니다.</p>
+                {% endif %}
+              </section>
+              {% endfor %}
+            </div>
+            {% elif layout_result %}
+            <div class="review-result">
+              <h3>Layout Review Result</h3>
+              <p>{{ layout_result["notice"] }}</p>
+              {% for check in layout_result["checks"] %}
+              <section>
+                <h4>{{ check.name.replace('_', ' ')|title }}</h4>
+                <p>{{ check.instruction }}</p>
+                {% if check.evidence %}
+                  {% for hit in check.evidence %}
+                  <p>{{ hit.excerpt }}</p>
+                  <div class="source">Page {{ hit.page_number }} · score {{ hit.score }}</div>
+                  {% endfor %}
+                {% else %}
+                <p>관련 근거를 찾지 못했습니다. 원본 도면 확인이 필요합니다.</p>
+                {% endif %}
+              </section>
               {% endfor %}
             </div>
             {% else %}

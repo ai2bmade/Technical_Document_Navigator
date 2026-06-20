@@ -497,6 +497,44 @@ def layout_review(payload: AnalyzeRequest) -> dict[str, object]:
     return review_layout(payload.document_id)
 
 
+@app.post("/spec-review-form", response_class=HTMLResponse)
+def spec_review_form(
+    request: Request,
+    document_id: int = Form(...),
+    page: int = Form(1),
+) -> HTMLResponse:
+    result = analyze_spec(document_id)
+    workspace = load_workspace(document_id, page, mode="spec")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "spec_result": result,
+            **workspace,
+        },
+    )
+
+
+@app.post("/layout-review-form", response_class=HTMLResponse)
+def layout_review_form(
+    request: Request,
+    document_id: int = Form(...),
+    page: int = Form(1),
+) -> HTMLResponse:
+    result = review_layout(document_id)
+    workspace = load_workspace(document_id, page, mode="layout")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "layout_result": result,
+            **workspace,
+        },
+    )
+
+
 @app.post("/api/translate")
 def translate(payload: TranslateRequest) -> dict[str, str]:
     if payload.target_language not in {"English", "Japanese", "Chinese", "Arabic", "Korean"}:
