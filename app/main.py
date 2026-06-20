@@ -11,7 +11,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app.config import settings
-from app.copilot import analyze_spec, answer_question, review_layout, translation_workflow
+from app.copilot import (
+    analyze_spec,
+    answer_question,
+    page_action,
+    review_layout,
+    translation_workflow,
+)
 from app.ocr import run_ocr_for_document
 from app.page_images import render_page_png
 from app.pdf_ingest import ingest_pdf
@@ -254,6 +260,36 @@ def ask_form(
             "app_name": settings.app_name,
             "question": question,
             "result": result,
+            **workspace,
+        },
+    )
+
+
+@app.post("/quick-form", response_class=HTMLResponse)
+def quick_form(
+    request: Request,
+    action: str = Form(...),
+    document_id: int = Form(...),
+    page: int = Form(1),
+) -> HTMLResponse:
+    workspace = load_workspace(document_id, page)
+    selected_document = workspace["selected_document"]
+    page_chunks = workspace["page_chunks"]
+    page_text = "\n\n".join(chunk["content"] for chunk in page_chunks)
+    if selected_document is None:
+        raise HTTPException(status_code=404, detail="Document was not found.")
+    result = page_action(
+        action,
+        page_text,
+        selected_document["filename"],
+        workspace["selected_page"],
+    )
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "quick_result": result,
             **workspace,
         },
     )

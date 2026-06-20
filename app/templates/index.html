@@ -168,29 +168,29 @@
           </div>
 
           <div class="quick">
-            <form action="/ask-form" method="post">
+            <form action="/quick-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
               <input type="hidden" name="page" value="{{ selected_page }}">
-              <input type="hidden" name="question" value="Summarize the current document.">
-              <button type="submit">Document Summary</button>
+              <input type="hidden" name="action" value="summary">
+              <button type="submit">현재 페이지 요약</button>
             </form>
-            <form action="/ask-form" method="post">
+            <form action="/quick-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
               <input type="hidden" name="page" value="{{ selected_page }}">
-              <input type="hidden" name="question" value="Explain this in beginner-friendly terms.">
-              <button type="submit">Easy Explain</button>
+              <input type="hidden" name="action" value="easy">
+              <button type="submit">쉽게 설명</button>
             </form>
-            <form action="/ask-form" method="post">
+            <form action="/quick-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
               <input type="hidden" name="page" value="{{ selected_page }}">
-              <input type="hidden" name="question" value="Find important safety warnings.">
-              <button type="submit">Warnings</button>
+              <input type="hidden" name="action" value="warnings">
+              <button type="submit">주의사항</button>
             </form>
-            <form action="/ask-form" method="post">
+            <form action="/quick-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
               <input type="hidden" name="page" value="{{ selected_page }}">
-              <input type="hidden" name="question" value="Find related specifications.">
-              <button type="submit">Related Specs</button>
+              <input type="hidden" name="action" value="specs">
+              <button type="submit">수치/사양 후보</button>
             </form>
           </div>
 
@@ -203,11 +203,18 @@
             </ul>
           </div>
 
-          <div class="chat">
+          <div class="chat {% if not question and not result and not quick_result %}idle{% endif %}">
             {% if question %}
             <div class="msg user">{{ question }}</div>
             {% endif %}
-            {% if result %}
+            {% if quick_result %}
+            <div class="msg bot">
+              {{ quick_result.answer }}
+              {% for item in quick_result.evidence %}
+              <div class="source">Evidence: {{ item.filename }} · Page {{ item.page_number }}</div>
+              {% endfor %}
+            </div>
+            {% elif result %}
             <div class="msg bot">
               {{ result.answer }}
               {% for item in result.evidence %}
@@ -215,8 +222,8 @@
               {% endfor %}
             </div>
             {% else %}
-            <div class="msg bot">
-              Select a document and ask a question. If the answer is not in the document, the assistant will say it cannot be confirmed.
+            <div class="assistant-hint">
+              현재 페이지 요약, 쉬운 설명, 주의사항 버튼을 누르거나 아래에 직접 질문하세요.
             </div>
             {% endif %}
           </div>

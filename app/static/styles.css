@@ -492,6 +492,20 @@ button.pill {
   padding: 16px;
 }
 
+.chat.idle {
+  flex: 0 0 auto;
+  min-height: 92px;
+}
+
+.assistant-hint {
+  border: 1px dashed #cbd5e1;
+  border-radius: 14px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 14px;
+}
+
 .msg {
   border-radius: 16px;
   font-size: 14px;
