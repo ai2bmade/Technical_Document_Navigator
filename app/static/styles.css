@@ -314,6 +314,31 @@ button.pill {
   cursor: pointer;
 }
 
+.viewer-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.viewer-actions a {
+  background: #f8fafc;
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 11px;
+  text-decoration: none;
+}
+
+.viewer-actions a.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
 .page {
   background: #f8fafc;
   flex: 1;

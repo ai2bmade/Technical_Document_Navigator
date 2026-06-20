@@ -151,7 +151,11 @@
               <span class="pill">Indexed</span>
               {% endif %}
             {% elif mode == 'preview' and selected_manual %}
-              <span class="pill">Customer Preview</span>
+              <div class="viewer-actions">
+                <span class="pill">Customer Preview</span>
+                <a class="{% if view != 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=manual">Fit Panel</a>
+                <a class="{% if view == 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=original">Enlarge</a>
+              </div>
             {% endif %}
           </div>
 
@@ -189,8 +193,6 @@
                 </div>
 
                 <div class="view-switch">
-                  <a class="{% if view != 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=manual">Manual Text</a>
-                  <a class="{% if view == 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=original">Original Enlarged</a>
                   {% if selected_manual.source_document_id %}
                   <a href="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" target="_blank" rel="noreferrer">Open Image</a>
                   {% endif %}
