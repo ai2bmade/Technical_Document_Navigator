@@ -35,7 +35,7 @@
         {% endif %}
       </header>
 
-      <main class="workspace">
+      <main class="workspace {% if mode == 'preview' and view == 'original' %}original-workspace{% endif %}">
         <aside class="panel sidebar">
           {% if mode == 'preview' %}
           <div class="sidebar-head">
@@ -156,7 +156,7 @@
           </div>
 
           <div class="page">
-            <article class="manual-page">
+            <article class="manual-page {% if mode == 'preview' and view == 'original' %}original-viewer{% endif %}">
               {% if upload_message %}
               <div class="notice">{{ upload_message }}</div>
               {% endif %}
@@ -191,6 +191,9 @@
                 <div class="view-switch">
                   <a class="{% if view != 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=manual">Manual Text</a>
                   <a class="{% if view == 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=original">Original Enlarged</a>
+                  {% if selected_manual.source_document_id %}
+                  <a href="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" target="_blank" rel="noreferrer">Open Image</a>
+                  {% endif %}
                 </div>
 
                 <section class="manual-section">
@@ -267,6 +270,7 @@
                   {% if mode == 'manual_admin' %}
                   <form class="ocr-edit-form" action="/save-ocr-page-form" method="post">
                     <h2>Edit OCR Text</h2>
+                    <p>이 페이지의 OCR 텍스트를 직접 고친 뒤 저장합니다. 저장하면 위의 OCR 텍스트와 Preview에 등록된 같은 페이지 문구도 함께 갱신됩니다.</p>
                     <input type="hidden" name="document_id" value="{{ selected_document.id }}">
                     <input type="hidden" name="page" value="{{ selected_page }}">
                     <textarea name="corrected_text" rows="14">{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}

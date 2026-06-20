@@ -126,6 +126,10 @@ button {
   padding: 18px;
 }
 
+.workspace.original-workspace .page {
+  padding: 10px;
+}
+
 .panel {
   background: #fff;
   border: 1px solid #e5e7eb;
@@ -328,6 +332,22 @@ button.pill {
   padding: 34px 40px;
 }
 
+.manual-page.original-viewer {
+  max-width: none;
+  min-height: 0;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.original-viewer .manual-section {
+  border-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 300px);
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
 .notice {
   background: #eff6ff;
   border: 1px solid #dbeafe;
@@ -459,12 +479,21 @@ button.pill {
 }
 
 .zoom-page {
-  margin-left: -20px;
-  margin-right: -20px;
+  align-items: flex-start;
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  margin-left: -8px;
+  margin-right: -8px;
+  overflow: auto;
 }
 
 .zoom-page img {
   border-radius: 8px;
+  height: auto;
+  max-width: none;
+  min-width: 0;
+  width: 100%;
 }
 
 .ocr-text-panel {
@@ -495,6 +524,13 @@ button.pill {
 
 .ocr-edit-form h2 {
   font-size: 16px;
+  margin: 0;
+}
+
+.ocr-edit-form p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
   margin: 0;
 }
 
