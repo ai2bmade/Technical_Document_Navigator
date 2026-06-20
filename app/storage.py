@@ -13,6 +13,7 @@ create table if not exists documents (
   id integer primary key autoincrement,
   filename text not null,
   stored_path text not null,
+  workspace text not null default 'manual',
   page_count integer not null,
   created_at text not null default current_timestamp
 );
@@ -111,3 +112,11 @@ def db() -> Iterator[sqlite3.Connection]:
 def init_db() -> None:
     with db() as conn:
         conn.executescript(SCHEMA)
+        columns = {
+            row["name"]
+            for row in conn.execute("pragma table_info(documents)").fetchall()
+        }
+        if "workspace" not in columns:
+            conn.execute(
+                "alter table documents add column workspace text not null default 'manual'"
+            )

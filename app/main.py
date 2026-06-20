@@ -75,6 +75,14 @@ class TranslationReviewRequest(BaseModel):
     target_language: str
 
 
+def workspace_for_mode(mode: str) -> str:
+    if mode == "spec":
+        return "spec"
+    if mode == "layout":
+        return "layout"
+    return "manual"
+
+
 def load_workspace(
     document_id: int | None = None,
     page: int = 1,
@@ -85,29 +93,43 @@ def load_workspace(
     valid_modes = {"manual_admin", "spec", "layout", "preview"}
     if mode not in valid_modes:
         mode = "manual_admin"
+    document_workspace = workspace_for_mode(mode)
     with db() as conn:
         documents = conn.execute(
             """
-            select d.id, d.filename, d.page_count, d.created_at, count(c.id) as chunk_count
+            select d.id, d.filename, d.workspace, d.page_count, d.created_at, count(c.id) as chunk_count
             from documents d
             left join chunks c on c.document_id = d.id
+            where d.workspace = ?
             group by d.id
             order by d.id desc
-            """
+            """,
+            (document_workspace,),
         ).fetchall()
         selected_document = None
         if documents:
-            selected_id = document_id or documents[0]["id"]
+            candidate_id = document_id or documents[0]["id"]
             selected_document = conn.execute(
                 """
-                select d.id, d.filename, d.page_count, d.created_at, count(c.id) as chunk_count
+                select d.id, d.filename, d.workspace, d.page_count, d.created_at, count(c.id) as chunk_count
                 from documents d
                 left join chunks c on c.document_id = d.id
-                where d.id = ?
+                where d.id = ? and d.workspace = ?
                 group by d.id
                 """,
-                (selected_id,),
+                (candidate_id, document_workspace),
             ).fetchone()
+            if selected_document is None:
+                selected_document = conn.execute(
+                    """
+                    select d.id, d.filename, d.workspace, d.page_count, d.created_at, count(c.id) as chunk_count
+                    from documents d
+                    left join chunks c on c.document_id = d.id
+                    where d.id = ?
+                    group by d.id
+                    """,
+                    (documents[0]["id"],),
+                ).fetchone()
         chunks = []
         page_chunks = []
         selected_page = 1
@@ -236,16 +258,20 @@ def document_page_image(document_id: int, page_number: int) -> Response:
 
 
 @app.get("/api/documents")
-def list_documents() -> list[dict[str, object]]:
+def list_documents(workspace: str = "manual") -> list[dict[str, object]]:
+    if workspace not in {"manual", "spec", "layout"}:
+        workspace = "manual"
     with db() as conn:
         rows = conn.execute(
             """
-            select d.id, d.filename, d.page_count, d.created_at, count(c.id) as chunk_count
+            select d.id, d.filename, d.workspace, d.page_count, d.created_at, count(c.id) as chunk_count
             from documents d
             left join chunks c on c.document_id = d.id
+            where d.workspace = ?
             group by d.id
             order by d.id desc
-            """
+            """,
+            (workspace,),
         ).fetchall()
     documents = []
     for row in rows:
@@ -256,18 +282,23 @@ def list_documents() -> list[dict[str, object]]:
 
 
 @app.post("/api/documents")
-async def upload_document(file: UploadFile = File(...)) -> dict[str, object]:
+async def upload_document(
+    file: UploadFile = File(...),
+    workspace: str = Form("manual"),
+) -> dict[str, object]:
+    if workspace not in {"manual", "spec", "layout"}:
+        workspace = "manual"
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported in MVP.")
     with NamedTemporaryFile(delete=False, suffix=".pdf") as temp:
         temp.write(await file.read())
         temp_path = Path(temp.name)
     try:
-        document_id = ingest_pdf(temp_path, display_name=file.filename)
+        document_id = ingest_pdf(temp_path, display_name=file.filename, workspace=workspace)
     finally:
         if temp_path.exists():
             temp_path.unlink(missing_ok=True)
-    return {"document_id": document_id, "filename": file.filename}
+    return {"document_id": document_id, "filename": file.filename, "workspace": workspace}
 
 
 @app.post("/upload-form", response_class=HTMLResponse)
@@ -276,13 +307,18 @@ async def upload_form(
     file: UploadFile = File(...),
     mode: str = Form("manual_admin"),
 ) -> HTMLResponse:
+    workspace_name = workspace_for_mode(mode)
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported in MVP.")
     with NamedTemporaryFile(delete=False, suffix=".pdf") as temp:
         temp.write(await file.read())
         temp_path = Path(temp.name)
     try:
-        document_id = ingest_pdf(temp_path, display_name=file.filename)
+        document_id = ingest_pdf(
+            temp_path,
+            display_name=file.filename,
+            workspace=workspace_name,
+        )
     finally:
         if temp_path.exists():
             temp_path.unlink(missing_ok=True)
@@ -611,9 +647,13 @@ def quick_form(
 
 
 @app.post("/ocr-form", response_class=HTMLResponse)
-def ocr_form(request: Request, document_id: int = Form(...)) -> HTMLResponse:
+def ocr_form(
+    request: Request,
+    document_id: int = Form(...),
+    mode: str = Form("manual_admin"),
+) -> HTMLResponse:
     result = run_ocr_for_document(document_id)
-    workspace = load_workspace(document_id, mode="manual_admin")
+    workspace = load_workspace(document_id, mode=mode)
     return templates.TemplateResponse(
         "index.html",
         {

@@ -145,6 +145,7 @@
               {% if selected_document.chunk_count == 0 %}
               <form action="/ocr-form" method="post">
                 <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                <input type="hidden" name="mode" value="{{ mode }}">
                 <button class="pill warning-pill" type="submit">Run OCR</button>
               </form>
               {% else %}

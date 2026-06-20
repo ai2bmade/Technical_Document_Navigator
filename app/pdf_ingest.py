@@ -45,12 +45,20 @@ def split_chunks(text: str, page_number: int, max_chars: int = 1400) -> list[Chu
     return chunks
 
 
-def ingest_pdf(source_path: Path, display_name: str | None = None) -> int:
+def ingest_pdf(
+    source_path: Path,
+    display_name: str | None = None,
+    workspace: str = "manual",
+) -> int:
     reader = PdfReader(str(source_path))
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     original_name = display_name or source_path.name
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", original_name)
-    stored_path = settings.uploads_dir / safe_name
+    if workspace not in {"manual", "spec", "layout"}:
+        workspace = "manual"
+    workspace_dir = settings.uploads_dir / workspace
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    stored_path = workspace_dir / safe_name
     if source_path.resolve() != stored_path.resolve():
         shutil.copy2(source_path, stored_path)
 
@@ -61,8 +69,11 @@ def ingest_pdf(source_path: Path, display_name: str | None = None) -> int:
 
     with db() as conn:
         cursor = conn.execute(
-            "insert into documents(filename, stored_path, page_count) values (?, ?, ?)",
-            (original_name, str(stored_path), len(reader.pages)),
+            """
+            insert into documents(filename, stored_path, workspace, page_count)
+            values (?, ?, ?, ?)
+            """,
+            (original_name, str(stored_path), workspace, len(reader.pages)),
         )
         document_id = int(cursor.lastrowid)
         conn.executemany(
