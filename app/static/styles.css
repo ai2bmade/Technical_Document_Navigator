@@ -14,7 +14,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -79,11 +80,12 @@ button {
   padding: 5px;
 }
 
-.nav span {
+.nav a {
   border-radius: 999px;
   color: #64748b;
   font-size: 14px;
   padding: 8px 14px;
+  text-decoration: none;
   white-space: nowrap;
 }
 
@@ -105,6 +107,13 @@ button {
 
 .file-button input {
   display: none;
+}
+
+.file-button.ghost {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+  text-decoration: none;
 }
 
 .workspace {
@@ -217,6 +226,10 @@ p {
   border-top: 1px solid #eef2f7;
   overflow: auto;
   padding: 16px 12px 18px;
+}
+
+.product-list {
+  max-height: 210px;
 }
 
 .toc h3 {
@@ -432,6 +445,10 @@ button.pill {
   margin-bottom: 12px;
 }
 
+.customer-copy p {
+  white-space: pre-wrap;
+}
+
 .manual-section p {
   color: #334155;
   font-size: 15px;
@@ -481,6 +498,47 @@ button.pill {
   line-height: 1.65;
   margin: 0;
   padding-left: 18px;
+}
+
+.admin-form {
+  border-bottom: 1px solid #eef2f7;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.admin-form h3 {
+  color: #0f172a;
+  font-size: 13px;
+  margin: 0;
+}
+
+.admin-form label {
+  color: #475569;
+  display: grid;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 5px;
+}
+
+.admin-form input,
+.admin-form select {
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  color: #0f172a;
+  font-weight: 500;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.admin-form button {
+  background: #2563eb;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 10px 12px;
 }
 
 .chat {

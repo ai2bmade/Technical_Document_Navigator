@@ -18,6 +18,7 @@ class Settings:
         self.chroma_port = int(env("CHROMA_PORT", "8000") or "8000")
         self.telegram_bot_token = env("TELEGRAM_BOT_TOKEN")
         self.openai_api_key = env("OPENAI_API_KEY")
+        self.openai_model = env("OPENAI_MODEL", "gpt-5.2") or "gpt-5.2"
         self.tesseract_cmd = env(
             "TESSERACT_CMD",
             r"G:\Codex\tools\tesseract\Tesseract-OCR\tesseract.exe",

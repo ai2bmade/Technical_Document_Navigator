@@ -11,6 +11,7 @@ services:
       OCR_LANG: kor+eng
       OCR_DPI: 220
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.2}
     volumes:
       - industrial_data:/data
     depends_on:
@@ -30,6 +31,7 @@ services:
       OCR_DPI: 220
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.2}
     volumes:
       - industrial_data:/data
     depends_on:

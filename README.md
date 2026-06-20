@@ -72,6 +72,7 @@ Important settings:
 - `DATABASE_URL`: optional PostgreSQL URL for future migration
 - `TELEGRAM_BOT_TOKEN`: enables the Telegram bot
 - `OPENAI_API_KEY`: optional future LLM provider key
+- `OPENAI_MODEL`: model used for translation pipeline, defaults to `gpt-5.2`
 - `TESSERACT_CMD`: OCR executable path
 - `OCR_LANG`: OCR languages, defaults to `kor+eng`
 - `OCR_DPI`: PDF render DPI for OCR, defaults to `220`
@@ -104,3 +105,5 @@ See `DEPLOYMENT.md` for the fast Coolify checklist.
 This MVP uses SQLite plus a local lexical retriever so it can run immediately.
 The repository is structured so PostgreSQL, Chroma, OCR, and provider LLMs can
 be enabled incrementally without changing the user-facing API.
+
+See `SAMPLE_STRATEGY.md` for the product-family sample plan.

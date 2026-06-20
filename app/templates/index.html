@@ -17,29 +17,62 @@
           </div>
         </div>
         <nav class="nav">
-          <span class="active">Manual</span>
-          <span>Spec Sheet Review</span>
-          <span>Layout Review</span>
-          <span>Admin</span>
+          <a class="{% if mode == 'manual_admin' %}active{% endif %}" href="/?mode=manual_admin">Manual Admin</a>
+          <a class="{% if mode == 'spec' %}active{% endif %}" href="/?mode=spec">Spec Sheet Review</a>
+          <a class="{% if mode == 'layout' %}active{% endif %}" href="/?mode=layout">Layout Review</a>
+          <a class="{% if mode == 'preview' %}active{% endif %}" href="/?mode=preview">Preview</a>
         </nav>
+        {% if mode == 'manual_admin' %}
         <form class="top-upload" action="/upload-form" method="post" enctype="multipart/form-data">
           <label class="file-button">
             + Upload
             <input type="file" name="file" accept="application/pdf" onchange="this.form.submit()">
           </label>
         </form>
+        {% else %}
+        <a class="file-button ghost" href="/?mode=manual_admin">Admin Upload</a>
+        {% endif %}
       </header>
 
       <main class="workspace">
         <aside class="panel sidebar">
+          {% if mode == 'preview' %}
           <div class="sidebar-head">
-            <h2>Documents</h2>
-            <p>Uploaded PDFs and indexing status</p>
+            <h2>Preview Manuals</h2>
+            <p>고객이 보게 될 제품군/언어별 매뉴얼</p>
           </div>
-
+          <div class="doc-list">
+            {% for manual in product_manuals %}
+            <a class="doc-card {% if selected_manual and manual.manual_version_id == selected_manual.manual_version_id %}active{% endif %}" href="/?mode=preview&manual_version_id={{ manual.manual_version_id }}&page=1">
+              <div class="doc-title">{{ manual.display_name }}</div>
+              <div class="doc-meta">{{ manual.slug }} · {{ manual.language|upper }} · {{ manual.page_count }} pages</div>
+              <span class="status ready">Preview</span>
+            </a>
+            {% else %}
+            <div class="empty">아직 제품군 매뉴얼이 없습니다. Manual Admin에서 업로드/OCR 후 제품군으로 등록합니다.</div>
+            {% endfor %}
+          </div>
+          <div class="toc">
+            <h3>Page Navigator</h3>
+            {% if selected_manual %}
+              {% for page_number in range(1, selected_manual.page_count + 1) %}
+              <a class="toc-item {% if page_number == selected_page %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ page_number }}">
+                <span class="num">{{ page_number }}</span>
+                <span>Page {{ page_number }}</span>
+              </a>
+              {% endfor %}
+            {% else %}
+              <div class="empty small">제품군 매뉴얼을 먼저 등록하세요.</div>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="sidebar-head">
+            <h2>{% if mode == 'manual_admin' %}Manual Admin{% elif mode == 'spec' %}Spec Sheet Review{% else %}Layout Review{% endif %}</h2>
+            <p>{% if mode == 'manual_admin' %}업로드, OCR, 수정, 공개 준비{% else %}내부 검토용 PDF 작업 영역{% endif %}</p>
+          </div>
           <div class="doc-list">
             {% for doc in documents %}
-            <a class="doc-card {% if selected_document and doc.id == selected_document.id %}active{% endif %}" href="/?document_id={{ doc.id }}&page=1">
+            <a class="doc-card {% if selected_document and doc.id == selected_document.id %}active{% endif %}" href="/?mode={{ mode }}&document_id={{ doc.id }}&page=1">
               <div class="doc-title">#{{ doc.id }} {{ doc.filename }}</div>
               <div class="doc-meta">{{ doc.page_count }} pages · {{ doc.chunk_count }} chunks</div>
               {% if doc.chunk_count == 0 %}
@@ -52,12 +85,24 @@
             <div class="empty">No documents uploaded yet.</div>
             {% endfor %}
           </div>
-
+          {% if mode == 'manual_admin' %}
+          <div class="toc product-list">
+            <h3>Product Manuals</h3>
+            {% for manual in product_manuals %}
+            <a class="toc-item" href="/?mode=preview&manual_version_id={{ manual.manual_version_id }}&page=1">
+              <span class="num">{{ manual.language|upper }}</span>
+              <span>{{ manual.display_name }}</span>
+            </a>
+            {% else %}
+            <div class="empty small">제품군으로 등록된 매뉴얼이 아직 없습니다.</div>
+            {% endfor %}
+          </div>
+          {% endif %}
           <div class="toc">
             <h3>Page Navigator</h3>
             {% if selected_document %}
               {% for page_number in range(1, selected_document.page_count + 1) %}
-              <a class="toc-item {% if page_number == selected_page %}active{% endif %}" href="/?document_id={{ selected_document.id }}&page={{ page_number }}">
+              <a class="toc-item {% if page_number == selected_page %}active{% endif %}" href="/?mode={{ mode }}&document_id={{ selected_document.id }}&page={{ page_number }}">
                 <span class="num">{{ page_number }}</span>
                 <span>Page {{ page_number }}</span>
               </a>
@@ -66,21 +111,36 @@
               <div class="empty small">Upload a PDF to browse pages.</div>
             {% endif %}
           </div>
+          {% endif %}
         </aside>
 
         <section class="panel viewer">
           <div class="viewer-head">
             <div>
               <small>
-                {% if selected_document %}
+                {% if mode == 'preview' and selected_manual %}
+                {{ selected_manual.slug }} · {{ selected_manual.language|upper }} · Page {{ selected_page }} of {{ selected_manual.page_count }}
+                {% elif selected_document %}
                 Document #{{ selected_document.id }} · Page {{ selected_page }} of {{ selected_document.page_count }}
                 {% else %}
                 No document selected
                 {% endif %}
               </small>
-              <h1>{% if selected_document %}{{ selected_document.filename }}{% else %}Upload a document{% endif %}</h1>
+              <h1>
+                {% if mode == 'preview' and selected_manual %}
+                {{ selected_manual.display_name }}
+                {% elif selected_document %}
+                {{ selected_document.filename }}
+                {% elif mode == 'spec' %}
+                Spec Sheet Review
+                {% elif mode == 'layout' %}
+                Layout Review
+                {% else %}
+                Manual Admin
+                {% endif %}
+              </h1>
             </div>
-            {% if selected_document %}
+            {% if mode != 'preview' and selected_document %}
               {% if selected_document.chunk_count == 0 %}
               <form action="/ocr-form" method="post">
                 <input type="hidden" name="document_id" value="{{ selected_document.id }}">
@@ -89,6 +149,8 @@
               {% else %}
               <span class="pill">Indexed</span>
               {% endif %}
+            {% elif mode == 'preview' and selected_manual %}
+              <span class="pill">Customer Preview</span>
             {% endif %}
           </div>
 
@@ -101,61 +163,105 @@
               <div class="notice">OCR result: {{ ocr_result.status }} · {{ ocr_result.chunks_added }} chunks</div>
               {% endif %}
 
-              <div class="manual-header">
-                <div>
-                  <div class="manual-title">
-                    {% if selected_document %}Original PDF Page{% else %}Technical Document Navigator{% endif %}
+              {% if mode == 'preview' %}
+                {% if selected_manual and selected_manual_page %}
+                <div class="manual-header">
+                  <div>
+                    <div class="manual-title">{{ selected_manual.display_name }}</div>
+                    <div class="manual-sub">Customer preview · {{ selected_manual.language|upper }} manual · {{ selected_manual.slug }}</div>
                   </div>
-                  <div class="manual-sub">Page image first. OCR text below. Evidence stays visible.</div>
+                  <div class="page-no">Page {{ selected_page }} / {{ selected_manual.page_count }}</div>
                 </div>
-                <div class="page-no">
-                  {% if selected_document %}
-                  Page {{ selected_page }} / {{ selected_document.page_count }}<br>{{ selected_document.chunk_count }} chunks
+
+                <div class="page-controls">
+                  {% if previous_page %}
+                  <a class="page-button" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ previous_page }}">Prev</a>
                   {% else %}
-                  MVP
+                  <span class="page-button disabled">Prev</span>
+                  {% endif %}
+                  <span class="page-current">Page {{ selected_page }}</span>
+                  {% if next_page %}
+                  <a class="page-button" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ next_page }}">Next</a>
+                  {% else %}
+                  <span class="page-button disabled">Next</span>
                   {% endif %}
                 </div>
-              </div>
 
-              {% if selected_document %}
-              <div class="page-controls">
-                {% if previous_page %}
-                <a class="page-button" href="/?document_id={{ selected_document.id }}&page={{ previous_page }}">Prev</a>
-                {% else %}
-                <span class="page-button disabled">Prev</span>
-                {% endif %}
-                <span class="page-current">Page {{ selected_page }}</span>
-                {% if next_page %}
-                <a class="page-button" href="/?document_id={{ selected_document.id }}&page={{ next_page }}">Next</a>
-                {% else %}
-                <span class="page-button disabled">Next</span>
-                {% endif %}
-              </div>
-
-              <section class="manual-section" id="page-{{ selected_page }}">
-                <figure class="page-image single-page">
-                  <img src="/documents/{{ selected_document.id }}/pages/{{ selected_page }}.png" alt="{{ selected_document.filename }} page {{ selected_page }}">
-                  <figcaption>Original PDF page {{ selected_page }}</figcaption>
-                </figure>
-
-                <div class="ocr-text-panel">
-                  <h2>OCR / Extracted Text</h2>
-                  {% if page_chunks %}
-                    {% for chunk in page_chunks %}
-                    <p>{{ chunk.content }}</p>
-                    {% endfor %}
-                  {% elif selected_document.chunk_count == 0 %}
-                    <p>No extracted text yet. Run OCR for scanned PDFs.</p>
-                  {% else %}
-                    <p>No text chunk was found for this page.</p>
+                <section class="manual-section">
+                  {% if selected_manual.source_document_id %}
+                  <figure class="page-image single-page">
+                    <img src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
+                    <figcaption>Original source page {{ selected_page }}</figcaption>
+                  </figure>
                   {% endif %}
-                </div>
-              </section>
+                  <div class="ocr-text-panel customer-copy">
+                    <h2>Published Manual Text</h2>
+                    <p>{{ selected_manual_page.published_text or selected_manual_page.ai_corrected_text or selected_manual_page.raw_ocr_text or '아직 공개용 문구가 없습니다.' }}</p>
+                  </div>
+                </section>
+                {% else %}
+                <section class="manual-section">
+                  <h2>Preview</h2>
+                  <p>고객용 미리보기는 제품군과 언어 버전으로 구성됩니다. Manual Admin에서 PDF를 제품군 매뉴얼로 등록하면 여기에 표시됩니다.</p>
+                </section>
+                {% endif %}
               {% else %}
-              <section class="manual-section">
-                <h2>Start</h2>
-                <p>Upload a manual, spec sheet, or layout PDF. Text PDFs are indexed immediately. Scanned PDFs can be searched after OCR.</p>
-              </section>
+                <div class="manual-header">
+                  <div>
+                    <div class="manual-title">
+                      {% if selected_document %}Original PDF Page{% else %}Technical Document Navigator{% endif %}
+                    </div>
+                    <div class="manual-sub">Page image first. OCR text below. Evidence stays visible.</div>
+                  </div>
+                  <div class="page-no">
+                    {% if selected_document %}
+                    Page {{ selected_page }} / {{ selected_document.page_count }}<br>{{ selected_document.chunk_count }} chunks
+                    {% else %}
+                    MVP
+                    {% endif %}
+                  </div>
+                </div>
+
+                {% if selected_document %}
+                <div class="page-controls">
+                  {% if previous_page %}
+                  <a class="page-button" href="/?mode={{ mode }}&document_id={{ selected_document.id }}&page={{ previous_page }}">Prev</a>
+                  {% else %}
+                  <span class="page-button disabled">Prev</span>
+                  {% endif %}
+                  <span class="page-current">Page {{ selected_page }}</span>
+                  {% if next_page %}
+                  <a class="page-button" href="/?mode={{ mode }}&document_id={{ selected_document.id }}&page={{ next_page }}">Next</a>
+                  {% else %}
+                  <span class="page-button disabled">Next</span>
+                  {% endif %}
+                </div>
+
+                <section class="manual-section" id="page-{{ selected_page }}">
+                  <figure class="page-image single-page">
+                    <img src="/documents/{{ selected_document.id }}/pages/{{ selected_page }}.png" alt="{{ selected_document.filename }} page {{ selected_page }}">
+                    <figcaption>Original PDF page {{ selected_page }}</figcaption>
+                  </figure>
+
+                  <div class="ocr-text-panel">
+                    <h2>OCR / Extracted Text</h2>
+                    {% if page_chunks %}
+                      {% for chunk in page_chunks %}
+                      <p>{{ chunk.content }}</p>
+                      {% endfor %}
+                    {% elif selected_document.chunk_count == 0 %}
+                      <p>No extracted text yet. Run OCR for scanned PDFs.</p>
+                    {% else %}
+                      <p>No text chunk was found for this page.</p>
+                    {% endif %}
+                  </div>
+                </section>
+                {% else %}
+                <section class="manual-section">
+                  <h2>{% if mode == 'manual_admin' %}Start Manual Admin{% elif mode == 'spec' %}Start Spec Sheet Review{% else %}Start Layout Review{% endif %}</h2>
+                  <p>Upload a PDF, run OCR when needed, then use the right-side tools for page review. Published customer manuals live under Preview.</p>
+                </section>
+                {% endif %}
               {% endif %}
             </article>
           </div>
@@ -163,43 +269,79 @@
 
         <aside class="panel assistant">
           <div class="assistant-head">
-            <h2>AI Technical Assistant</h2>
-            <p>Ask about the selected document. Answers include evidence pages when available.</p>
+            <h2>{% if mode == 'preview' %}Customer Assistant{% else %}AI Technical Assistant{% endif %}</h2>
+            <p>{% if mode == 'preview' %}고객이 볼 매뉴얼 페이지 기준으로 질문합니다.{% else %}Ask about the selected document. Answers include evidence pages when available.{% endif %}</p>
           </div>
 
+          {% if mode == 'manual_admin' and selected_document and selected_document.chunk_count > 0 %}
+          <form class="admin-form" action="/product-manual-form" method="post">
+            <h3>Register Product Manual</h3>
+            <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+            <label>
+              Product slug
+              <input name="product_slug" placeholder="zdx-u60" required>
+            </label>
+            <label>
+              Display name
+              <input name="display_name" placeholder="ZDX-U60 Smart Door Lock" required>
+            </label>
+            <label>
+              Language
+              <select name="language">
+                <option value="ko">Korean</option>
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+              </select>
+            </label>
+            <button type="submit">Add to Preview</button>
+          </form>
+          {% endif %}
+
+          {% if mode != 'preview' %}
           <div class="quick">
             <form action="/quick-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="mode" value="{{ mode }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="summary">
               <button type="submit">현재 페이지 요약</button>
             </form>
             <form action="/quick-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="mode" value="{{ mode }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="easy">
               <button type="submit">쉽게 설명</button>
             </form>
             <form action="/quick-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="mode" value="{{ mode }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="warnings">
               <button type="submit">주의사항</button>
             </form>
             <form action="/quick-form" method="post">
               {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <input type="hidden" name="mode" value="{{ mode }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="specs">
               <button type="submit">수치/사양 후보</button>
             </form>
           </div>
+          {% endif %}
 
           <div class="summary-card">
             <h3>Current Context</h3>
             <ul>
+              {% if mode == 'preview' and selected_manual %}
+              <li>{{ selected_manual.display_name }}</li>
+              <li>{{ selected_manual.language|upper }} · Page {{ selected_page }} / {{ selected_manual.page_count }}</li>
+              <li>Customer-facing published copy.</li>
+              {% else %}
               <li>{% if selected_document %}{{ selected_document.filename }}{% else %}No document selected{% endif %}</li>
               <li>{% if selected_document %}Page {{ selected_page }} / {{ selected_document.page_count }}{% else %}Upload first{% endif %}</li>
               <li>Evidence first. No unsupported guessing.</li>
+              {% endif %}
             </ul>
           </div>
 
@@ -223,13 +365,23 @@
             </div>
             {% else %}
             <div class="assistant-hint">
+              {% if mode == 'preview' %}
+              고객용 화면에서는 현재 매뉴얼 페이지를 보면서 요약이나 질문을 받을 공간입니다.
+              {% else %}
               현재 페이지 요약, 쉬운 설명, 주의사항 버튼을 누르거나 아래에 직접 질문하세요.
+              {% endif %}
             </div>
             {% endif %}
           </div>
 
           <form class="input" action="/ask-form" method="post">
-            {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+            {% if mode == 'preview' and selected_manual and selected_manual.source_document_id %}
+            <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">
+            <input type="hidden" name="manual_version_id" value="{{ selected_manual.manual_version_id }}">
+            {% elif selected_document %}
+            <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+            {% endif %}
+            <input type="hidden" name="mode" value="{{ mode }}">
             <input type="hidden" name="page" value="{{ selected_page }}">
             <input name="question" placeholder="Ask about the selected document..." required>
             <button type="submit">Send</button>
