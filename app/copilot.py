@@ -205,6 +205,31 @@ def ensure_korean_first_report(report: str, report_type: str) -> str:
     return generate_text(instructions, prompt)
 
 
+def refine_korean_analysis_report(report: str, report_type: str) -> str:
+    instructions = (
+        "당신은 산업 기술문서 분석 리포트를 고객사 내부 검토용 한국어 문서로 정제하는 전문 에디터입니다. "
+        "원문이 어떤 언어이든 최종 결과는 한국어를 최우선으로 작성합니다. "
+        "단, 모델명, 제품명, 부품명, 표준명, 단위, 수치, 도면 번호, 원문 약어는 변경하지 말고 보존합니다. "
+        "영어 문장이나 영어 섹션 제목이 남아 있으면 자연스러운 한국어로 번역합니다. "
+        "단순 요약이 아니라 검토자가 바로 의사결정에 쓸 수 있는 분석 리포트로 정리합니다. "
+        "OCR이 불명확한 숫자나 문구는 단정하지 말고 '확인 필요'로 표시합니다. "
+        "새로운 사실을 지어내지 말고 입력 리포트의 근거와 의미만 보존합니다."
+    )
+    prompt = (
+        f"리포트 유형: {report_type}\n\n"
+        "아래 초안을 한국어 우선의 정밀 분석 리포트로 다시 작성하세요.\n"
+        "출력 구조:\n"
+        "1. 핵심 판정\n"
+        "2. 확인된 정보\n"
+        "3. 분석 및 해석\n"
+        "4. 불명확하거나 위험한 지점\n"
+        "5. 담당자 확인 질문\n"
+        "6. 다음 액션\n\n"
+        f"초안:\n{report}"
+    )
+    return ensure_korean_first_report(generate_text(instructions, prompt), report_type)
+
+
 def analyze_spec(document_id: int) -> dict[str, object]:
     extracted: dict[str, list[dict[str, object]]] = {}
     for field, terms in SPEC_FIELDS.items():
@@ -253,7 +278,7 @@ def analyze_spec(document_id: int) -> dict[str, object]:
         "신뢰도는 '높음/중간/낮음'으로 표시하세요. OCR이 깨진 값은 후보를 단정하지 말고 확인 질문으로 빼세요.\n\n"
         f"OCR 텍스트:\n{context}"
     )
-    report = ensure_korean_first_report(
+    report = refine_korean_analysis_report(
         generate_text(instructions, prompt),
         "스펙시트 정밀 분석",
     )
@@ -275,25 +300,41 @@ def analyze_spec(document_id: int) -> dict[str, object]:
 
 def review_layout(document_id: int) -> dict[str, object]:
     checks = [
-        ("installation_space", "Check required installation footprint and service clearance."),
-        ("ceiling_height", "Confirm required ceiling height from layout notes."),
-        ("utility_connections", "Identify power, air, fuel, exhaust, and ventilation needs."),
-        ("missing_dimensions", "Flag any unclear or missing dimensions for engineer review."),
+        (
+            "설치 공간 및 서비스 여유",
+            "required installation footprint service clearance 설치 공간 서비스 여유",
+            "장비 설치 면적과 유지보수 접근 공간을 확인합니다.",
+        ),
+        (
+            "천장 높이 조건",
+            "ceiling height layout notes 천장 높이",
+            "천장 높이와 상부 간섭 가능성을 확인합니다.",
+        ),
+        (
+            "유틸리티 연결 조건",
+            "power air fuel exhaust ventilation utility 전원 공압 연료 배기 환기",
+            "전원, 공압, 연료, 배기, 환기 등 유틸리티 조건을 확인합니다.",
+        ),
+        (
+            "누락 또는 불명확한 치수",
+            "missing unclear dimensions engineer review 치수 간격 확인",
+            "OCR 또는 도면에서 불명확한 치수와 현장 확인이 필요한 항목을 찾습니다.",
+        ),
     ]
     evidence = [
         {
             "name": name,
-            "instruction": instruction,
+            "instruction": description,
             "evidence": [
                 {
                     "page_number": hit.page_number,
                     "excerpt": hit.content[:500],
                     "score": round(hit.score, 4),
                 }
-                for hit in search(instruction, document_id=document_id, limit=2)
+                for hit in search(query, document_id=document_id, limit=2)
             ],
         }
-        for name, instruction in checks
+        for name, query, description in checks
     ]
     context = document_context(document_id)
     if not context:
@@ -329,7 +370,7 @@ def review_layout(document_id: int) -> dict[str, object]:
         "심각도는 '높음/중간/낮음'으로 표시하세요. OCR이 불명확하면 단정하지 말고 확인 필요로 표시하세요.\n\n"
         f"OCR 텍스트:\n{context}"
     )
-    report = ensure_korean_first_report(
+    report = refine_korean_analysis_report(
         generate_text(instructions, prompt),
         "레이아웃 문제점 검토",
     )

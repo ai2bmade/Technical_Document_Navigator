@@ -8,6 +8,14 @@ LANGUAGE_NAMES = {
     "ko": "Korean",
     "en": "English",
     "es": "Spanish",
+    "ar": "Arabic",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "zh": "Chinese",
+    "ja": "Japanese",
 }
 
 
