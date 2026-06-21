@@ -36,6 +36,8 @@ LANGUAGE_LABELS = {
 }
 
 CUSTOMER_LANGUAGES = ["ko", "en", "es", "ar", "fr", "de", "pt"]
+PRIMARY_LANGUAGES = ["ko", "en", "es", "ar"]
+SECONDARY_LANGUAGES = ["fr", "de", "pt"]
 
 
 def language_label(code: str) -> str:
@@ -101,7 +103,7 @@ def product_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def language_keyboard(product_slug: str) -> InlineKeyboardMarkup:
+def language_keyboard(product_slug: str, expanded: bool = False) -> InlineKeyboardMarkup:
     manuals = [
         manual
         for manual in list_product_manuals()
@@ -112,17 +114,19 @@ def language_keyboard(product_slug: str) -> InlineKeyboardMarkup:
 
     manuals_by_language = {str(manual["language"]).lower(): manual for manual in manuals}
     fallback_manual = manuals_by_language.get("ko", manuals[0])
-    rows = []
-    for language in CUSTOMER_LANGUAGES:
+    languages = CUSTOMER_LANGUAGES if expanded else PRIMARY_LANGUAGES
+    buttons = []
+    for language in languages:
         manual = manuals_by_language.get(language, fallback_manual)
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    language_label(language),
-                    callback_data=f"manual_lang:{manual['manual_version_id']}:1:{language}",
-                )
-            ]
+        buttons.append(
+            InlineKeyboardButton(
+                language_label(language),
+                callback_data=f"manual_lang:{manual['manual_version_id']}:1:{language}",
+            )
         )
+    rows = [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+    if not expanded:
+        rows.append([InlineKeyboardButton("More languages", callback_data=f"languages_more:{product_slug}")])
     rows.append([InlineKeyboardButton("Choose product again", callback_data="products")])
     return InlineKeyboardMarkup(rows)
 
@@ -262,6 +266,16 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await show_products(update, context)
         return
 
+    if data.startswith("languages_more:"):
+        product_slug = data.split(":", 1)[1]
+        manuals = [manual for manual in list_product_manuals() if str(manual["slug"]) == product_slug]
+        display_name = manuals[0]["display_name"] if manuals else "this product"
+        await query.message.reply_text(
+            f"More languages for {display_name}.",
+            reply_markup=language_keyboard(product_slug, expanded=True),
+        )
+        return
+
     if data.startswith("product_for_manual:"):
         manual_version_id = int(data.split(":", 1)[1])
         info = manual_version_info(manual_version_id)
@@ -340,7 +354,7 @@ def main() -> None:
     application.add_handler(CommandHandler("manuals", manuals_command))
     application.add_handler(CommandHandler("manual", manual_command))
     application.add_handler(CommandHandler("manula", manual_command))
-    application.add_handler(CallbackQueryHandler(product_callback, pattern=r"^(products|product:|product_for_manual:)"))
+    application.add_handler(CallbackQueryHandler(product_callback, pattern=r"^(products|product:|product_for_manual:|languages_more:)"))
     application.add_handler(CallbackQueryHandler(page_callback, pattern=r"^(manual|manual_lang|page|summary|warnings):"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer_message))
     LOGGER.info("Telegram customer manual viewer started")
