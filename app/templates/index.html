@@ -451,6 +451,14 @@
               <li>{% if selected_document %}Page {{ selected_page }} / {{ selected_document.page_count }}{% else %}Upload first{% endif %}</li>
               <li>Evidence first. No unsupported guessing.</li>
               {% endif %}
+              {% if knowledge_run %}
+              <li>
+                Knowledge: {{ knowledge_run.status }}
+                · {{ knowledge_run.pages_processed }} pages
+                · {{ knowledge_run.terms_count }} terms
+                · {{ knowledge_run.faqs_count }} FAQs
+              </li>
+              {% endif %}
             </ul>
           </div>
 

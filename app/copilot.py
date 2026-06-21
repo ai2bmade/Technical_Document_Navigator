@@ -5,6 +5,7 @@ import re
 from app.openai_service import generate_text
 from app.retrieval import Hit, search
 from app.storage import db
+from app.knowledge_pipeline import document_knowledge_context, faq_candidates_for_question
 
 
 NO_EVIDENCE = "Document evidence not found."
@@ -149,19 +150,22 @@ def answer_question_with_ai(
     hits = search(question, document_id=document_id, limit=6)
     language_name = ANSWER_LANGUAGE_NAMES.get(language.lower(), language)
     context = document_context(document_id, max_chars=14000) if document_id else ""
+    knowledge_context = document_knowledge_context(document_id, limit=12000) if document_id else ""
+    faq_candidates = faq_candidates_for_question(document_id, question) if document_id else []
     if not hits:
-        if context:
+        if context or knowledge_context:
             answer = generate_text(
                 (
                     "You are a careful customer-support assistant for an industrial product manual. "
-                    f"Answer in {language_name}. Use only the selected manual context provided below. "
+                    f"Answer in {language_name}. Use only the selected manual knowledge and context provided below. "
                     "If the context does not support the answer, say that the manual evidence is insufficient. "
                     "Do not invent specifications, safety instructions, or procedures. Preserve numbers, units, "
                     "model names, warning words, and button labels exactly when they appear in the evidence."
                 ),
                 (
-                    "Search did not find a focused passage, so use this broader selected-manual context.\n\n"
+                    "Search did not find a focused passage, so use this structured knowledge and broader selected-manual context.\n\n"
                     f"Customer question:\n{question}\n\n"
+                    f"Structured knowledge:\n{knowledge_context}\n\n"
                     f"Manual context:\n{context}\n\n"
                     "Return a concise customer-facing answer with page references when visible in the context."
                 ),
@@ -201,6 +205,10 @@ def answer_question_with_ai(
     )
     prompt = (
         f"Customer question:\n{question}\n\n"
+        "Structured manual knowledge generated after OCR:\n"
+        f"{knowledge_context}\n\n"
+        "FAQ candidates generated after OCR:\n"
+        f"{faq_candidates}\n\n"
         "Selected manual broader context:\n"
         f"{context}\n\n"
         "Focused search candidates, which may be imperfect:\n"

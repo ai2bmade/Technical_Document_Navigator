@@ -270,3 +270,164 @@ def native_review_translation(manual_page_id: int, target_language: str) -> dict
             (final, final, row["id"]),
         )
     return {"translation_id": row["id"], "status": "native_reviewed", "text": final}
+
+
+def create_reviewed_translation_version(
+    source_manual_version_id: int,
+    target_language: str = "en",
+) -> dict[str, object]:
+    language_name = LANGUAGE_NAMES.get(target_language, target_language)
+    with db() as conn:
+        source = conn.execute(
+            """
+            select mv.*, pf.display_name, pf.slug
+            from manual_versions mv
+            join product_families pf on pf.id = mv.product_family_id
+            where mv.id = ?
+            """,
+            (source_manual_version_id,),
+        ).fetchone()
+        if source is None:
+            raise ValueError("Source manual version was not found.")
+
+        conn.execute(
+            """
+            insert into manual_versions(product_family_id, source_document_id, language, title, status)
+            values (?, ?, ?, ?, ?)
+            on conflict(product_family_id, language) do update set
+              source_document_id = excluded.source_document_id,
+              title = excluded.title,
+              status = excluded.status
+            """,
+            (
+                source["product_family_id"],
+                source["source_document_id"],
+                target_language,
+                source["title"],
+                "translation_reviewing",
+            ),
+        )
+        target = conn.execute(
+            """
+            select id from manual_versions
+            where product_family_id = ? and language = ?
+            """,
+            (source["product_family_id"], target_language),
+        ).fetchone()
+        target_manual_version_id = int(target["id"])
+        pages = conn.execute(
+            """
+            select *
+            from manual_pages
+            where manual_version_id = ?
+            order by page_number
+            """,
+            (source_manual_version_id,),
+        ).fetchall()
+
+    pages_processed = 0
+    for page in pages:
+        source_text = (
+            page["published_text"]
+            or page["ai_corrected_text"]
+            or page["raw_ocr_text"]
+            or ""
+        ).strip()
+        if not source_text:
+            continue
+
+        draft = generate_text(
+            (
+                "You are a professional technical manual translator. "
+                f"Translate into {language_name}. Preserve numbers, units, model names, button labels, "
+                "warning labels, sequence, and procedures. Do not add content. If the source is unclear, mark [CHECK]."
+            ),
+            (
+                f"Product: {source['display_name']}\n"
+                f"Page: {page['page_number']}\n\n"
+                f"Source manual text:\n{source_text}"
+            ),
+        )
+        accuracy_checked = generate_text(
+            (
+                "You are a bilingual technical accuracy reviewer. Compare the source and translation. "
+                "Correct mistranslations, missing warnings, wrong numbers, wrong units, wrong button names, "
+                "or changed procedure order. Return only the corrected translation, followed by a short "
+                "'Review notes:' section."
+            ),
+            (
+                f"Source text:\n{source_text}\n\n"
+                f"Draft translation:\n{draft}"
+            ),
+        )
+        final = generate_text(
+            (
+                f"You are a native {language_name} customer manual editor. Make the translation natural, clear, "
+                "and customer-facing. Do not change technical meaning, numbers, units, model names, warnings, "
+                "or step order. Remove internal reviewer wording unless it contains a [CHECK] that must remain visible."
+            ),
+            f"Accuracy-checked translation:\n{accuracy_checked}",
+        )
+        translation_id = ensure_translation_row(int(page["id"]), target_language)
+        with db() as conn:
+            conn.execute(
+                """
+                update manual_page_translations
+                set draft_translation = ?,
+                    accuracy_checked_translation = ?,
+                    final_translation = ?,
+                    accuracy_issues = ?,
+                    native_review_notes = ?,
+                    status = 'native_reviewed',
+                    updated_at = current_timestamp
+                where id = ?
+                """,
+                (
+                    draft,
+                    accuracy_checked,
+                    final,
+                    accuracy_checked,
+                    final,
+                    translation_id,
+                ),
+            )
+            conn.execute(
+                """
+                insert into manual_pages(
+                  manual_version_id, page_number, raw_ocr_text, ai_corrected_text, published_text, status
+                )
+                values (?, ?, ?, ?, ?, ?)
+                on conflict(manual_version_id, page_number) do update set
+                  raw_ocr_text = excluded.raw_ocr_text,
+                  ai_corrected_text = excluded.ai_corrected_text,
+                  published_text = excluded.published_text,
+                  status = excluded.status,
+                  updated_at = current_timestamp
+                """,
+                (
+                    target_manual_version_id,
+                    page["page_number"],
+                    source_text,
+                    accuracy_checked,
+                    final,
+                    "published_translation",
+                ),
+            )
+        pages_processed += 1
+
+    with db() as conn:
+        conn.execute(
+            """
+            update manual_versions
+            set status = ?
+            where id = ?
+            """,
+            ("published_translation" if pages_processed else "translation_empty", target_manual_version_id),
+        )
+    return {
+        "source_manual_version_id": source_manual_version_id,
+        "target_manual_version_id": target_manual_version_id,
+        "target_language": target_language,
+        "pages_processed": pages_processed,
+        "status": "published_translation" if pages_processed else "translation_empty",
+    }

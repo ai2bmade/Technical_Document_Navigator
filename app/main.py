@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 import subprocess
 from tempfile import NamedTemporaryFile
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,14 +15,17 @@ from pydantic import BaseModel
 from app.config import settings
 from app.copilot import (
     analyze_spec,
+    answer_question_with_ai,
     answer_question,
     page_action,
     review_layout,
     translation_workflow,
 )
+from app.knowledge_pipeline import build_manual_knowledge
 from app.manual_pipeline import (
     check_translation_accuracy,
     create_manual_version_from_document,
+    create_reviewed_translation_version,
     generate_translation_draft,
     list_product_manuals,
     native_review_translation,
@@ -76,6 +80,50 @@ class TranslationReviewRequest(BaseModel):
     target_language: str
 
 
+def build_manual_knowledge_safely(document_id: int) -> dict[str, object]:
+    try:
+        return build_manual_knowledge(document_id)
+    except OpenAIUnavailable as exc:
+        with db() as conn:
+            conn.execute(
+                """
+                insert into manual_knowledge_runs(document_id, status, message)
+                values (?, ?, ?)
+                """,
+                (document_id, "unavailable", str(exc)),
+            )
+        return {"document_id": document_id, "status": "unavailable", "message": str(exc)}
+    except Exception as exc:
+        with db() as conn:
+            conn.execute(
+                """
+                insert into manual_knowledge_runs(document_id, status, message)
+                values (?, ?, ?)
+                """,
+                (document_id, "failed", str(exc)),
+            )
+        return {"document_id": document_id, "status": "failed", "message": str(exc)}
+
+
+def create_english_version_safely(manual_version_id: int) -> dict[str, object]:
+    try:
+        return create_reviewed_translation_version(manual_version_id, target_language="en")
+    except OpenAIUnavailable as exc:
+        return {
+            "source_manual_version_id": manual_version_id,
+            "target_language": "en",
+            "status": "unavailable",
+            "message": str(exc),
+        }
+    except Exception as exc:
+        return {
+            "source_manual_version_id": manual_version_id,
+            "target_language": "en",
+            "status": "failed",
+            "message": str(exc),
+        }
+
+
 def workspace_for_mode(mode: str) -> str:
     if mode == "spec":
         return "spec"
@@ -123,6 +171,26 @@ def latest_analysis_report(document_id: int | None, report_type: str) -> dict[st
     payload["saved_at"] = row["created_at"]
     payload["saved"] = True
     return payload
+
+
+def latest_knowledge_run(document_id: int | None) -> dict[str, object] | None:
+    if document_id is None:
+        return None
+    with db() as conn:
+        try:
+            row = conn.execute(
+                """
+                select status, pages_processed, terms_count, faqs_count, message, created_at
+                from manual_knowledge_runs
+                where document_id = ?
+                order by id desc
+                limit 1
+                """,
+                (document_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+    return dict(row) if row else None
 
 
 def load_workspace(
@@ -259,6 +327,11 @@ def load_workspace(
         "product_manuals": product_manuals,
         "selected_manual": selected_manual,
         "selected_manual_page": selected_manual_page,
+        "knowledge_run": latest_knowledge_run(
+            selected_document["id"] if selected_document else (
+                selected_manual["source_document_id"] if selected_manual else None
+            )
+        ),
         "saved_spec_result": latest_analysis_report(
             selected_document["id"] if selected_document and mode == "spec" else None,
             "spec",
@@ -387,6 +460,7 @@ async def upload_form(
 @app.post("/save-ocr-page-form", response_class=HTMLResponse)
 def save_ocr_page_form(
     request: Request,
+    background_tasks: BackgroundTasks,
     document_id: int = Form(...),
     page: int = Form(1),
     corrected_text: str = Form(""),
@@ -423,6 +497,7 @@ def save_ocr_page_form(
             """,
             (text, text, text, page, document_id),
         )
+    background_tasks.add_task(build_manual_knowledge_safely, document_id)
     workspace = load_workspace(document_id, page, mode="manual_admin")
     return templates.TemplateResponse(
         "index.html",
@@ -438,6 +513,7 @@ def save_ocr_page_form(
 @app.post("/product-manual-form", response_class=HTMLResponse)
 def product_manual_form(
     request: Request,
+    background_tasks: BackgroundTasks,
     document_id: int = Form(...),
     product_slug: str = Form(...),
     display_name: str = Form(...),
@@ -453,6 +529,8 @@ def product_manual_form(
         manufacturer=manufacturer.strip() if manufacturer else None,
         model_group=model_group.strip() if model_group else None,
     )
+    if (language.strip() or "ko").lower() != "en":
+        background_tasks.add_task(create_english_version_safely, manual_version_id)
     workspace = load_workspace(
         document_id,
         mode="preview",
@@ -498,12 +576,19 @@ def delete_document_form(request: Request, document_id: int = Form(...)) -> HTML
 
 
 @app.post("/api/documents/{document_id}/ocr")
-def ocr_document(document_id: int, payload: OcrRequest | None = None) -> dict[str, object]:
+def ocr_document(
+    document_id: int,
+    background_tasks: BackgroundTasks,
+    payload: OcrRequest | None = None,
+) -> dict[str, object]:
     try:
-        return run_ocr_for_document(
+        result = run_ocr_for_document(
             document_id,
             replace_existing=payload.replace_existing if payload else False,
         )
+        if result.get("chunks_added", 0) or result.get("status") == "ocr_completed":
+            background_tasks.add_task(build_manual_knowledge_safely, document_id)
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -513,7 +598,10 @@ def ocr_document(document_id: int, payload: OcrRequest | None = None) -> dict[st
 
 
 @app.post("/api/product-manuals/from-document")
-def product_manual_from_document(payload: ProductManualRequest) -> dict[str, object]:
+def product_manual_from_document(
+    payload: ProductManualRequest,
+    background_tasks: BackgroundTasks,
+) -> dict[str, object]:
     try:
         manual_version_id = create_manual_version_from_document(
             payload.document_id,
@@ -525,10 +613,13 @@ def product_manual_from_document(payload: ProductManualRequest) -> dict[str, obj
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if payload.language.lower() != "en":
+        background_tasks.add_task(create_english_version_safely, manual_version_id)
     return {
         "manual_version_id": manual_version_id,
         "product_slug": payload.product_slug,
         "language": payload.language,
+        "english_version": "queued" if payload.language.lower() != "en" else "source_is_english",
     }
 
 
@@ -544,6 +635,14 @@ def translation_draft(payload: TranslationRequest) -> dict[str, object]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/manual-versions/{manual_version_id}/english")
+def create_english_manual_version(manual_version_id: int) -> dict[str, object]:
+    result = create_english_version_safely(manual_version_id)
+    if result.get("status") in {"failed", "unavailable"}:
+        raise HTTPException(status_code=503, detail=result)
+    return result
 
 
 @app.post("/api/translations/check-accuracy")
@@ -658,6 +757,11 @@ def translate(payload: TranslateRequest) -> dict[str, str]:
     return translation_workflow(payload.text, payload.target_language)
 
 
+@app.post("/api/documents/{document_id}/knowledge")
+def rebuild_document_knowledge(document_id: int) -> dict[str, object]:
+    return build_manual_knowledge_safely(document_id)
+
+
 @app.post("/ask-form", response_class=HTMLResponse)
 def ask_form(
     request: Request,
@@ -668,7 +772,26 @@ def ask_form(
     manual_version_id: int | None = Form(None),
     view: str = Form("manual"),
 ) -> HTMLResponse:
-    result = answer_question(question, document_id)
+    try:
+        if mode == "preview":
+            language = "ko"
+            if manual_version_id is not None:
+                with db() as conn:
+                    row = conn.execute(
+                        "select language from manual_versions where id = ?",
+                        (manual_version_id,),
+                    ).fetchone()
+                if row:
+                    language = row["language"]
+            result = answer_question_with_ai(question, document_id, language=language)
+        else:
+            result = answer_question(question, document_id)
+    except OpenAIUnavailable as exc:
+        result = {
+            "answer": f"AI 답변 엔진을 사용할 수 없습니다: {exc}",
+            "evidence": [],
+            "needs_ocr": False,
+        }
     workspace = load_workspace(document_id, page, mode, manual_version_id, view)
     return templates.TemplateResponse(
         "index.html",
@@ -729,10 +852,13 @@ def quick_form(
 @app.post("/ocr-form", response_class=HTMLResponse)
 def ocr_form(
     request: Request,
+    background_tasks: BackgroundTasks,
     document_id: int = Form(...),
     mode: str = Form("manual_admin"),
 ) -> HTMLResponse:
     result = run_ocr_for_document(document_id)
+    if result.get("chunks_added", 0) or result.get("status") == "ocr_completed":
+        background_tasks.add_task(build_manual_knowledge_safely, document_id)
     workspace = load_workspace(document_id, mode=mode)
     return templates.TemplateResponse(
         "index.html",

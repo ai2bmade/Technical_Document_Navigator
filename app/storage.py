@@ -91,6 +91,64 @@ create table if not exists manual_page_translations (
   updated_at text not null default current_timestamp,
   unique(manual_page_id, language)
 );
+
+create table if not exists manual_page_summaries (
+  id integer primary key autoincrement,
+  document_id integer not null references documents(id) on delete cascade,
+  page_number integer not null,
+  summary text,
+  key_actions text,
+  warnings text,
+  confidence text,
+  payload_json text,
+  updated_at text not null default current_timestamp,
+  unique(document_id, page_number)
+);
+
+create table if not exists manual_terms (
+  id integer primary key autoincrement,
+  document_id integer not null references documents(id) on delete cascade,
+  term text not null,
+  normalized_term text not null,
+  definition text,
+  aliases text,
+  page_numbers text,
+  confidence text,
+  updated_at text not null default current_timestamp,
+  unique(document_id, normalized_term)
+);
+
+create table if not exists manual_faqs (
+  id integer primary key autoincrement,
+  document_id integer not null references documents(id) on delete cascade,
+  question text not null,
+  answer text not null,
+  related_terms text,
+  evidence_pages text,
+  confidence text,
+  review_status text not null default 'ai_reviewed',
+  updated_at text not null default current_timestamp
+);
+
+create table if not exists manual_qa_reviews (
+  id integer primary key autoincrement,
+  faq_id integer not null references manual_faqs(id) on delete cascade,
+  reviewer_result text,
+  issues text,
+  revised_answer text,
+  updated_at text not null default current_timestamp
+);
+
+create table if not exists manual_knowledge_runs (
+  id integer primary key autoincrement,
+  document_id integer not null references documents(id) on delete cascade,
+  status text not null,
+  pages_processed integer not null default 0,
+  terms_count integer not null default 0,
+  faqs_count integer not null default 0,
+  message text,
+  created_at text not null default current_timestamp
+);
 """
 
 
