@@ -316,6 +316,7 @@ def sync_manual_versions_from_document(document_id: int) -> int:
                         else manual_pages.ai_corrected_text
                       end,
                       published_text = case
+                        when manual_pages.status in ('raw', 'ocr_done') then excluded.published_text
                         when coalesce(manual_pages.published_text, '') = '' then excluded.published_text
                         else manual_pages.published_text
                       end,

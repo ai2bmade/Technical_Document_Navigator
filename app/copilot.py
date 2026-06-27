@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from app.openai_service import generate_text
@@ -36,47 +37,60 @@ def compact_text(text: str, limit: int = 900) -> str:
 def page_action(action: str, page_text: str, filename: str, page_number: int) -> dict[str, object]:
     text = compact_text(page_text, 1600)
     if not text:
-        answer = "이 페이지에서 확인 가능한 OCR 텍스트가 없습니다. 원본 이미지를 보고 직접 확인하거나 OCR을 다시 실행해 주세요."
-    elif action == "summary":
-        answer = (
-            "현재 페이지 요약\n\n"
-            f"{compact_text(text, 700)}\n\n"
-            f"근거: {filename} p.{page_number}"
+        return {
+            "title": "Page information unavailable",
+            "answer": "No readable text is available for this page.",
+            "bullets": [],
+            "evidence": [],
+        }
+
+    action_guides = {
+        "summary": ("Page Summary", "Summarize the page in 2-3 concise sentences and list its key points."),
+        "easy": ("Plain-Language Explanation", "Explain the page clearly to a non-specialist without losing technical meaning."),
+        "warnings": ("Safety & Warnings", "List only warnings, cautions, prohibitions, and safety implications supported by the page."),
+        "specs": ("Specifications & Values", "Extract meaningful specifications, numbered components, values, units, and model identifiers."),
+    }
+    title, task = action_guides.get(action, ("Page Review", "Explain the important information on this page."))
+    answer = ""
+    bullets: list[str] = []
+    try:
+        response = generate_text(
+            (
+                "You are a precise customer-facing technical manual assistant. Respond in English. "
+                "Use only the supplied page text. Never dump or repeat the raw text. Organize the result "
+                "for quick reading. Preserve numbers, units, model names, and safety meaning. Return JSON only."
+            ),
+            (
+                f"Task: {task}\nDocument: {filename}\nPage: {page_number}\n\n"
+                "Return this JSON schema:\n"
+                '{"answer":"short explanatory paragraph","bullets":["clear point"]}\n\n'
+                f"Page text:\n{text}"
+            ),
         )
-    elif action == "easy":
-        answer = (
-            "쉽게 설명\n\n"
-            "이 페이지는 아래 내용을 중심으로 읽으면 됩니다.\n\n"
-            f"{compact_text(text, 700)}\n\n"
-            f"근거: {filename} p.{page_number}"
-        )
-    elif action == "warnings":
-        lines = [
-            line.strip()
-            for line in page_text.splitlines()
-            if any(word in line for word in ["주의", "경고", "위험", "안전", "금지"])
-        ]
-        if lines:
-            answer = "주의사항\n\n" + "\n".join(f"- {compact_text(line, 180)}" for line in lines[:8])
-        else:
-            answer = "이 페이지 OCR 텍스트에서는 명확한 주의/경고 문구를 찾지 못했습니다."
-        answer += f"\n\n근거: {filename} p.{page_number}"
-    elif action == "specs":
-        lines = [
-            line.strip()
-            for line in page_text.splitlines()
-            if re.search(r"\b(mm|cm|m|kg|kw|hp|v|hz|rpm|ltr|l)\b|[0-9]", line.lower())
-        ]
-        if lines:
-            answer = "관련 수치/사양 후보\n\n" + "\n".join(f"- {compact_text(line, 180)}" for line in lines[:10])
-        else:
-            answer = "이 페이지 OCR 텍스트에서는 수치/사양 후보를 찾지 못했습니다."
-        answer += f"\n\n근거: {filename} p.{page_number}"
-    else:
-        answer = "지원하지 않는 빠른 작업입니다."
+        match = re.search(r"\{.*\}", response, flags=re.DOTALL)
+        payload = json.loads(match.group(0) if match else response)
+        answer = str(payload.get("answer") or "").strip()
+        bullets = [str(item).strip() for item in payload.get("bullets", []) if str(item).strip()][:8]
+    except Exception:
+        sentences = re.split(r"(?<=[.!?])\s+", text)
+        answer = " ".join(sentences[:3]).strip()
+        if action == "specs":
+            bullets = [
+                line.strip()
+                for line in page_text.splitlines()
+                if re.search(r"\b(mm|cm|kg|kw|hp|v|hz|rpm|ltr)\b|^\(?\d+\)", line.lower())
+            ][:8]
+        elif action == "warnings":
+            bullets = [
+                line.strip()
+                for line in page_text.splitlines()
+                if any(word in line.lower() for word in ["warning", "caution", "danger", "safety", "do not"])
+            ][:8]
 
     return {
+        "title": title,
         "answer": answer,
+        "bullets": bullets,
         "evidence": [
             {
                 "filename": filename,

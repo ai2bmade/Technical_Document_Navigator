@@ -1092,6 +1092,46 @@ button.pill {
   max-width: 760px;
 }
 
+.doc-fact {
+  align-items: baseline;
+  background: #f8fafc;
+  border-left: 4px solid #2563eb;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(120px, .4fr) 1fr;
+  margin: 18px 0;
+  padding: 13px 16px;
+}
+
+.doc-fact dt {
+  color: #475467;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.doc-fact dd {
+  color: #101828;
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.doc-list-structured {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: grid;
+  gap: 8px;
+  margin: 22px 0;
+  padding: 18px 22px 18px 46px;
+}
+
+.doc-list-structured li {
+  color: #344054;
+  font-size: 15px;
+  line-height: 1.6;
+  padding-left: 4px;
+}
+
 .image-lightbox {
   align-items: center;
   background: rgba(15, 23, 42, .92);
@@ -1267,14 +1307,21 @@ button.pill {
   background: #eef2f6;
   border: 1px solid #d5dde8;
   margin-bottom: 24px;
-  max-height: 360px;
-  overflow: auto;
   padding: 14px;
 }
 
 .source-reference img {
-  max-height: 300px;
+  cursor: zoom-in;
+  height: auto;
+  max-height: none;
   object-fit: contain;
+  width: 100%;
+}
+
+.source-reference figcaption {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
 }
 
 .content-builder {
@@ -1468,6 +1515,62 @@ button.pill {
 .correction-review-meta ul {
   margin: 0;
   padding-left: 18px;
+}
+
+.translation-review {
+  border-top: 1px solid #d8e0ea;
+  margin-top: 24px;
+  padding-top: 22px;
+}
+
+.translation-review-head span {
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.translation-review-head h2 {
+  color: #101828;
+  font-size: 20px;
+  margin: 5px 0 12px;
+}
+
+.translated-manual-copy {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #1e293b;
+  font-size: 15px;
+  line-height: 1.75;
+  padding: 18px;
+  white-space: pre-wrap;
+}
+
+.translation-pending {
+  background: #f8fafc;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  color: #64748b;
+  padding: 16px;
+}
+
+.assistant-result h3 {
+  color: #0f172a;
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+
+.assistant-result p {
+  color: #334155;
+  line-height: 1.65;
+  margin: 0 0 12px;
+}
+
+.assistant-result ul {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 14px;
+  padding-left: 20px;
 }
 
 .authoring-gate,

@@ -154,6 +154,66 @@ def create_english_version_safely(manual_version_id: int) -> dict[str, object]:
         }
 
 
+def create_translation_version_safely(
+    manual_version_id: int,
+    target_language: str,
+) -> dict[str, object]:
+    try:
+        return create_reviewed_translation_version(
+            manual_version_id,
+            target_language=target_language,
+        )
+    except Exception as exc:
+        return {
+            "source_manual_version_id": manual_version_id,
+            "target_language": target_language,
+            "status": "failed",
+            "message": str(exc),
+        }
+
+
+def structure_manual_page(text: str) -> list[dict[str, object]]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    sections: list[dict[str, object]] = []
+    paragraph: list[str] = []
+    numbered_items: list[str] = []
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            sections.append({"type": "paragraph", "text": " ".join(paragraph)})
+            paragraph.clear()
+
+    def flush_items() -> None:
+        if numbered_items:
+            sections.append({"type": "list", "items": list(numbered_items)})
+            numbered_items.clear()
+
+    for line in lines:
+        item = re.match(r"^\(?\d+\)?[.)]?\s+(.+)$", line)
+        if item:
+            flush_paragraph()
+            numbered_items.append(item.group(1).strip())
+            continue
+        flush_items()
+        if re.match(r"^(SMCS Code|Model|Part|Serial|Rating|Capacity|Voltage|Frequency)\s*:", line, re.I):
+            flush_paragraph()
+            label, value = line.split(":", 1)
+            sections.append({"type": "fact", "label": label.strip(), "value": value.strip()})
+            continue
+        words = re.findall(r"[A-Za-z][A-Za-z0-9/-]*", line)
+        title_like = bool(words) and sum(word[:1].isupper() for word in words) >= max(1, len(words) - 1)
+        if len(line) <= 72 and title_like and not re.search(r"[.!?]$", line):
+            flush_paragraph()
+            sections.append({"type": "heading", "text": line})
+            continue
+        if re.fullmatch(r"[A-Za-z]?\d{6,}[A-Za-z0-9-]*", line):
+            continue
+        paragraph.append(line)
+    flush_paragraph()
+    flush_items()
+    return sections
+
+
 def workspace_for_mode(mode: str) -> str:
     if mode == "spec":
         return "spec"
@@ -296,6 +356,7 @@ def load_workspace(
         selected_manual = None
         selected_manual_page = None
         admin_manual = None
+        admin_korean_translation = None
         selected_page_correction = None
         if selected_document:
             selected_page = max(1, min(page, selected_document["page_count"]))
@@ -351,16 +412,29 @@ def load_workspace(
                       mv.title,
                       mv.status as manual_status,
                       mv.source_document_id,
+                      mv.product_family_id,
                       pf.slug,
                       pf.display_name
                     from manual_versions mv
                     join product_families pf on pf.id = mv.product_family_id
                     where mv.source_document_id = ?
-                    order by case when mv.language = 'ko' then 0 else 1 end, mv.id
+                    order by case when mv.status = 'published_translation' then 1 else 0 end, mv.id
                     limit 1
                     """,
                     (selected_document["id"],),
                 ).fetchone()
+                if admin_manual and admin_manual["language"] == "en":
+                    translation = conn.execute(
+                        """
+                        select mpt.final_translation, mpt.status
+                        from manual_pages mp
+                        join manual_page_translations mpt on mpt.manual_page_id = mp.id
+                        where mp.manual_version_id = ? and mp.page_number = ? and mpt.language = 'ko'
+                        """,
+                        (admin_manual["manual_version_id"], selected_page),
+                    ).fetchone()
+                    if translation:
+                        admin_korean_translation = dict(translation)
         if mode == "preview" and product_manuals:
             selected_manual_version_id = manual_version_id or int(product_manuals[0]["manual_version_id"])
             selected_manual = conn.execute(
@@ -412,12 +486,27 @@ def load_workspace(
         if selected_manual
         else []
     )
+    preview_sections = []
+    if selected_manual_page:
+        preview_text = (
+            selected_manual_page["published_text"]
+            or selected_manual_page["ai_corrected_text"]
+            or selected_manual_page["raw_ocr_text"]
+            or ""
+        )
+        preview_sections = structure_manual_page(preview_text)
     suggested_product_slug = ""
     suggested_display_name = ""
+    suggested_source_language = "ko"
     if selected_document:
         suggested_product_slug, suggested_display_name = suggest_product_identity(
             selected_document["filename"]
         )
+        sample_text = " ".join(str(chunk["content"]) for chunk in chunks[:5])
+        latin_count = len(re.findall(r"[A-Za-z]", sample_text))
+        korean_count = len(re.findall(r"[가-힣]", sample_text))
+        if latin_count > max(30, korean_count * 2):
+            suggested_source_language = "en"
     if admin_manual:
         suggested_product_slug = admin_manual["slug"]
         suggested_display_name = admin_manual["display_name"]
@@ -436,10 +525,13 @@ def load_workspace(
         "selected_manual_page": selected_manual_page,
         "selected_page_correction": selected_page_correction,
         "admin_manual": admin_manual,
+        "admin_korean_translation": admin_korean_translation,
         "admin_page_blocks": admin_page_blocks,
         "preview_page_blocks": preview_page_blocks,
+        "preview_sections": preview_sections,
         "suggested_product_slug": suggested_product_slug,
         "suggested_display_name": suggested_display_name,
+        "suggested_source_language": suggested_source_language,
         "knowledge_run": latest_knowledge_run(
             selected_document["id"] if selected_document else (
                 selected_manual["source_document_id"] if selected_manual else None
@@ -725,9 +817,12 @@ def product_manual_form(
         manufacturer=manufacturer.strip() if manufacturer else None,
         model_group=model_group.strip() if model_group else None,
     )
+    source_language = (language.strip() or "ko").lower()
     background_tasks.add_task(process_manual_document_safely, document_id)
-    if (language.strip() or "ko").lower() != "en":
-        background_tasks.add_task(create_english_version_safely, manual_version_id)
+    if source_language == "en":
+        background_tasks.add_task(create_translation_version_safely, manual_version_id, "ko")
+    elif source_language != "en":
+        background_tasks.add_task(create_translation_version_safely, manual_version_id, "en")
     workspace = load_workspace(
         document_id,
         mode="preview",
@@ -838,9 +933,12 @@ def product_manual_from_document(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    source_language = payload.language.lower()
     background_tasks.add_task(process_manual_document_safely, payload.document_id)
-    if payload.language.lower() != "en":
-        background_tasks.add_task(create_english_version_safely, manual_version_id)
+    if source_language == "en":
+        background_tasks.add_task(create_translation_version_safely, manual_version_id, "ko")
+    elif source_language != "en":
+        background_tasks.add_task(create_translation_version_safely, manual_version_id, "en")
     return {
         "manual_version_id": manual_version_id,
         "product_slug": payload.product_slug,
