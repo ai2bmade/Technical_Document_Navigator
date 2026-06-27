@@ -267,7 +267,7 @@ def answer_question_with_ai(
 
 
 def translate_customer_text(text: str, language: str) -> str:
-    if not text or language.lower() == "ko":
+    if not text:
         return text
     language_name = ANSWER_LANGUAGE_NAMES.get(language.lower(), language)
     return generate_text(

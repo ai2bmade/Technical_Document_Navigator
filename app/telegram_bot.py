@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import html
 import io
+import json
 import logging
+import re
+import sqlite3
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -77,6 +81,110 @@ def manual_page_text(manual_version_id: int, page_number: int) -> str:
     )
 
 
+def page_media(document_id: int | None, page_number: int) -> list[dict[str, object]]:
+    if not document_id:
+        return []
+    try:
+        with db() as conn:
+            rows = conn.execute(
+                """
+                select media_type, title, alt_text, files_json
+                from manual_page_media
+                where document_id = ? and page_number = ? and is_published = 1
+                order by id
+                """,
+                (document_id, page_number),
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    media = []
+    for row in rows:
+        try:
+            files = json.loads(row["files_json"] or "[]")
+        except json.JSONDecodeError:
+            files = []
+        if files:
+            media.append({**dict(row), "files": files})
+    return media
+
+
+def inline_manual_html(text: str) -> str:
+    escaped = html.escape(text)
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+    return escaped
+
+
+def manual_page_html_blocks(text: str) -> list[str]:
+    blocks: list[str] = []
+    paragraph: list[str] = []
+
+    def flush_paragraph() -> None:
+        if paragraph:
+            blocks.append(inline_manual_html(" ".join(paragraph)))
+            paragraph.clear()
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            flush_paragraph()
+            continue
+        if re.fullmatch(r"!\[[^\]]*\]\(/manual-media/\d+/\d+\)", line):
+            flush_paragraph()
+            continue
+        heading = re.match(r"^#{1,3}\s+(.+)$", line)
+        if heading:
+            flush_paragraph()
+            blocks.append(f"<b>{inline_manual_html(heading.group(1))}</b>")
+            continue
+        callout = re.match(
+            r"^>\s*\*{0,2}(Warning|Caution|Note)(?::\*{0,2}|\*{1,2}:)?\s*(.*)$",
+            line,
+            re.I,
+        )
+        if callout:
+            flush_paragraph()
+            blocks.append(
+                f"<b>{html.escape(callout.group(1).upper())}</b>\n{inline_manual_html(callout.group(2))}"
+            )
+            continue
+        bullet = re.match(r"^[-*]\s+(.+)$", line)
+        numbered = re.match(r"^(\d+)[.)]\s+(.+)$", line)
+        if bullet:
+            flush_paragraph()
+            blocks.append(f"• {inline_manual_html(bullet.group(1))}")
+            continue
+        if numbered:
+            flush_paragraph()
+            blocks.append(f"{numbered.group(1)}. {inline_manual_html(numbered.group(2))}")
+            continue
+        paragraph.append(line)
+    flush_paragraph()
+    return blocks
+
+
+def group_telegram_blocks(blocks: list[str], limit: int = 3600) -> list[str]:
+    messages: list[str] = []
+    current = ""
+    for block in blocks:
+        if len(block) > limit:
+            if current:
+                messages.append(current)
+                current = ""
+            plain = re.sub(r"</?(?:b|code)>", "", block)
+            messages.extend(plain[index : index + limit] for index in range(0, len(plain), limit))
+            continue
+        candidate = f"{current}\n\n{block}".strip() if current else block
+        if len(candidate) > limit:
+            messages.append(current)
+            current = block
+        else:
+            current = candidate
+    if current:
+        messages.append(current)
+    return messages
+
+
 def product_keyboard() -> InlineKeyboardMarkup:
     grouped: dict[str, dict[str, object]] = {}
     for manual in list_product_manuals():
@@ -94,7 +202,7 @@ def product_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
-                f"{item['display_name']} ({', '.join(item['languages'])})",
+                str(item["display_name"]),
                 callback_data=f"product:{item['slug']}",
             )
         ]
@@ -136,6 +244,7 @@ def page_keyboard(
     page_number: int,
     page_count: int,
     language: str,
+    has_media: bool = False,
 ) -> InlineKeyboardMarkup:
     buttons: list[list[InlineKeyboardButton]] = []
     nav_row: list[InlineKeyboardButton] = []
@@ -153,19 +262,57 @@ def page_keyboard(
                 callback_data=f"page:{manual_version_id}:{page_number + 1}:{language}",
             )
         )
-    if nav_row:
-        buttons.append(nav_row)
+    nav_row.insert(
+        1 if nav_row else 0,
+        InlineKeyboardButton(f"{page_number} / {page_count}", callback_data="noop"),
+    )
+    buttons.append(nav_row)
     buttons.append(
         [
-            InlineKeyboardButton("Summary", callback_data=f"summary:{manual_version_id}:{page_number}:{language}"),
-            InlineKeyboardButton("Warnings", callback_data=f"warnings:{manual_version_id}:{page_number}:{language}"),
+            InlineKeyboardButton("Page Summary", callback_data=f"summary:{manual_version_id}:{page_number}:{language}"),
+            InlineKeyboardButton("Simple Explanation", callback_data=f"easy:{manual_version_id}:{page_number}:{language}"),
         ]
     )
-    buttons.append([InlineKeyboardButton("Change language", callback_data=f"product_for_manual:{manual_version_id}")])
+    buttons.append(
+        [
+            InlineKeyboardButton("Safety & Warnings", callback_data=f"warnings:{manual_version_id}:{page_number}:{language}"),
+            InlineKeyboardButton("Specs & Values", callback_data=f"specs:{manual_version_id}:{page_number}:{language}"),
+        ]
+    )
+    if has_media:
+        buttons.append(
+            [InlineKeyboardButton("View Page Media", callback_data=f"media:{manual_version_id}:{page_number}:{language}")]
+        )
+    buttons.append(
+        [
+            InlineKeyboardButton("Change language", callback_data=f"product_for_manual:{manual_version_id}"),
+            InlineKeyboardButton("Products", callback_data="products"),
+        ]
+    )
     return InlineKeyboardMarkup(buttons)
 
 
+def is_authenticated(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    return bool(context.user_data.get("customer_authenticated"))
+
+
+async def begin_customer_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.clear()
+    context.user_data["login_step"] = "customer_id"
+    text = (
+        "Customer Login\n\n"
+        "Enter your customer ID."
+    )
+    if update.callback_query:
+        await update.callback_query.message.reply_text(text)
+    else:
+        await update.message.reply_text(text)
+
+
 async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_authenticated(context):
+        await begin_customer_login(update, context)
+        return
     manuals = list_product_manuals()
     if not manuals:
         text = "No published preview manuals yet. Please register a manual in Manual Admin first."
@@ -175,7 +322,7 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(text)
         return
 
-    text = "Choose a product manual. After selecting a product, choose the customer language."
+    text = "Choose a product. The first manual page will open immediately."
     if update.callback_query:
         await update.callback_query.message.reply_text(text, reply_markup=product_keyboard())
     else:
@@ -183,12 +330,15 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "Technical Document Navigator\n\n"
-        "Choose a product and language with the buttons below. "
-        "Then you can view pages or ask questions about the selected manual.",
-        reply_markup=product_keyboard() if list_product_manuals() else None,
-    )
+    if not is_authenticated(context):
+        await begin_customer_login(update, context)
+        return
+    await show_products(update, context)
+
+
+async def logout_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.clear()
+    await update.message.reply_text("Logged out. Use /start to sign in again.")
 
 
 async def manuals_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -210,41 +360,74 @@ async def send_manual_page(
     page_count = int(info["page_count"])
     page_number = max(1, min(page_number, page_count))
     selected_language = (language or str(info["language"])).lower()
+    source_language = str(info["language"]).lower()
     source_document_id = info.get("source_document_id")
     text = manual_page_text(manual_version_id, page_number)
-    if text:
+    if text and selected_language != source_language:
         try:
             text = translate_customer_text(text, selected_language)
         except OpenAIUnavailable:
             pass
 
     caption = (
-        f"{info['display_name']}\n"
-        f"Language: {language_label(selected_language)}\n"
-        f"Page {page_number} / {page_count}"
+        f"{info['display_name']} · {language_label(selected_language)}\n"
+        f"Original page {page_number} / {page_count}"
     )
-    if text:
-        caption += "\n\n" + text[:700]
 
     context.user_data["manual_version_id"] = manual_version_id
     context.user_data["source_document_id"] = source_document_id
     context.user_data["language"] = selected_language
     context.user_data["page_number"] = page_number
 
-    keyboard = page_keyboard(manual_version_id, page_number, page_count, selected_language)
+    media = page_media(int(source_document_id) if source_document_id else None, page_number)
+    keyboard = page_keyboard(
+        manual_version_id,
+        page_number,
+        page_count,
+        selected_language,
+        has_media=bool(media),
+    )
     if source_document_id:
-        image = render_page_png(int(source_document_id), page_number, dpi=135)
-        await context.bot.send_photo(
+        try:
+            image = render_page_png(int(source_document_id), page_number, dpi=150)
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=io.BytesIO(image),
+                caption=caption[:1024],
+            )
+        except (ValueError, FileNotFoundError) as exc:
+            LOGGER.warning("Could not render Telegram preview page: %s", exc)
+
+    header = (
+        f"<b>{html.escape(str(info['display_name']))}</b>\n"
+        f"Digital Manual · {html.escape(language_label(selected_language))} · Page {page_number} / {page_count}"
+    )
+    body_blocks = manual_page_html_blocks(text) if text else ["No published page content is available."]
+    compact_blocks: list[str] = []
+    used = 0
+    for block in body_blocks:
+        if used + len(block) > 1800:
+            if not compact_blocks:
+                compact_blocks.append(re.sub(r"</?(?:b|code)>", "", block)[:1750] + "…")
+            break
+        compact_blocks.append(block)
+        used += len(block)
+    compact_blocks.append("Type a question below, or choose one of the four review tools.")
+    messages = group_telegram_blocks([header, *compact_blocks])
+    for index, message in enumerate(messages):
+        await context.bot.send_message(
             chat_id=chat_id,
-            photo=io.BytesIO(image),
-            caption=caption[:1024],
-            reply_markup=keyboard,
+            text=message,
+            parse_mode="HTML",
+            reply_markup=keyboard if index == len(messages) - 1 else None,
+            disable_web_page_preview=True,
         )
-    else:
-        await context.bot.send_message(chat_id=chat_id, text=caption[:3900], reply_markup=keyboard)
 
 
 async def manual_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_authenticated(context):
+        await begin_customer_login(update, context)
+        return
     if not context.args:
         await manuals_command(update, context)
         return
@@ -261,6 +444,10 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
     data = query.data or ""
+
+    if not is_authenticated(context):
+        await begin_customer_login(update, context)
+        return
 
     if data == "products":
         await show_products(update, context)
@@ -293,15 +480,32 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not manuals:
         await query.message.reply_text("No language version is registered for this product.")
         return
-    await query.message.reply_text(
-        f"Choose language for {manuals[0]['display_name']}.",
-        reply_markup=language_keyboard(product_slug),
+    telegram_language = str(update.effective_user.language_code or "en").split("-", 1)[0].lower()
+    preferred_language = str(context.user_data.get("language") or telegram_language)
+    manuals_by_language = {str(manual["language"]).lower(): manual for manual in manuals}
+    selected = (
+        manuals_by_language.get(preferred_language)
+        or manuals_by_language.get("en")
+        or manuals_by_language.get("ko")
+        or manuals[0]
+    )
+    await send_manual_page(
+        query.message.chat_id,
+        context,
+        int(selected["manual_version_id"]),
+        1,
+        preferred_language,
     )
 
 
 async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
+    if not is_authenticated(context):
+        await begin_customer_login(update, context)
+        return
+    if (query.data or "") == "noop":
+        return
     parts = (query.data or "").split(":")
     action, manual_id_raw, page_raw = parts[:3]
     language = parts[3] if len(parts) > 3 else str(context.user_data.get("language") or "ko")
@@ -316,22 +520,67 @@ async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if info is None:
         await query.message.reply_text("Manual not found.")
         return
+    if action == "media":
+        media_items = page_media(
+            int(info["source_document_id"]) if info.get("source_document_id") else None,
+            page_number,
+        )
+        if not media_items:
+            await query.message.reply_text("No additional media is registered for this page.")
+            return
+        for item in media_items:
+            filename = str(item["files"][0])
+            path = (settings.manual_media_dir / filename).resolve()
+            try:
+                path.relative_to(settings.manual_media_dir.resolve())
+            except ValueError:
+                continue
+            if not path.exists():
+                continue
+            title = str(item["title"])
+            if item["media_type"] == "gif" or path.suffix.lower() == ".gif":
+                await context.bot.send_animation(query.message.chat_id, animation=path, caption=title[:1024])
+            else:
+                note = "\n360° preview: first frame" if item["media_type"] == "spin" else ""
+                await context.bot.send_photo(query.message.chat_id, photo=path, caption=(title + note)[:1024])
+        return
     result = page_action(
         action,
         manual_page_text(manual_version_id, page_number),
         info["display_name"],
         page_number,
     )
-    answer = result["answer"]
-    try:
-        answer = translate_customer_text(answer, language)
-    except OpenAIUnavailable:
-        pass
+    answer_parts = [str(result.get("title") or "Page Review"), str(result.get("answer") or "")]
+    answer_parts.extend(f"• {item}" for item in result.get("bullets", []))
+    answer = "\n\n".join(part for part in answer_parts if part)
+    if language.lower() != "en":
+        try:
+            answer = translate_customer_text(answer, language)
+        except OpenAIUnavailable:
+            pass
     await query.message.reply_text(answer[:3900])
 
 
 async def answer_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    question = update.message.text or ""
+    message = (update.message.text or "").strip()
+    login_step = context.user_data.get("login_step")
+    if login_step == "customer_id":
+        context.user_data["customer_id"] = message or "customer"
+        context.user_data["login_step"] = "password"
+        await update.message.reply_text("Enter your password.")
+        return
+    if login_step == "password":
+        customer_id = str(context.user_data.get("customer_id") or "Customer")
+        context.user_data.pop("login_step", None)
+        context.user_data["customer_authenticated"] = True
+        manuals = list_product_manuals()
+        text = f"Welcome, {customer_id}. Choose a product." if manuals else "Login complete. No Preview manuals are published yet."
+        await update.message.reply_text(text, reply_markup=product_keyboard() if manuals else None)
+        return
+    if not is_authenticated(context):
+        await begin_customer_login(update, context)
+        return
+    question = message
     source_document_id = context.user_data.get("source_document_id")
     if not source_document_id:
         await update.message.reply_text("Please use /manuals first, then choose product and language.")
@@ -351,11 +600,13 @@ def main() -> None:
     application = Application.builder().token(settings.telegram_bot_token).build()
     application.add_handler(CommandHandler("start", help_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("logout", logout_command))
     application.add_handler(CommandHandler("manuals", manuals_command))
+    application.add_handler(CommandHandler("preview", manuals_command))
     application.add_handler(CommandHandler("manual", manual_command))
     application.add_handler(CommandHandler("manula", manual_command))
     application.add_handler(CallbackQueryHandler(product_callback, pattern=r"^(products|product:|product_for_manual:|languages_more:)"))
-    application.add_handler(CallbackQueryHandler(page_callback, pattern=r"^(manual|manual_lang|page|summary|warnings):"))
+    application.add_handler(CallbackQueryHandler(page_callback, pattern=r"^(noop$|(manual|manual_lang|page|summary|easy|warnings|specs|media):)"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, answer_message))
     LOGGER.info("Telegram customer manual viewer started")
     application.run_polling()
