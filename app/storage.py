@@ -177,6 +177,22 @@ create table if not exists manual_knowledge_runs (
   message text,
   created_at text not null default current_timestamp
 );
+
+create table if not exists manual_page_media (
+  id integer primary key autoincrement,
+  document_id integer not null references documents(id) on delete cascade,
+  page_number integer not null,
+  media_type text not null,
+  title text not null,
+  alt_text text,
+  files_json text not null,
+  x_percent real not null,
+  y_percent real not null,
+  width_percent real not null,
+  height_percent real not null,
+  is_published integer not null default 1,
+  created_at text not null default current_timestamp
+);
 """
 
 
@@ -186,6 +202,7 @@ def ensure_dirs() -> None:
         settings.uploads_dir,
         settings.logs_dir,
         settings.vector_dir,
+        settings.manual_media_dir,
         settings.sqlite_path.parent,
     ]:
         Path(path).mkdir(parents=True, exist_ok=True)

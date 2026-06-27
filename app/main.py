@@ -6,9 +6,10 @@ import sqlite3
 from pathlib import Path
 import subprocess
 from tempfile import NamedTemporaryFile
+from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -47,6 +48,27 @@ from app.storage import db, init_db
 app = FastAPI(title=settings.app_name)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+
+MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}
+MEDIA_TYPES = {"image", "gif", "spin"}
+
+
+def list_page_media(document_id: int, page_number: int) -> list[dict[str, object]]:
+    with db() as conn:
+        try:
+            rows = conn.execute(
+                """
+                select id, media_type, title, alt_text, x_percent, y_percent,
+                       width_percent, height_percent, is_published
+                from manual_page_media
+                where document_id = ? and page_number = ?
+                order by id
+                """,
+                (document_id, page_number),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    return [dict(row) for row in rows]
 
 
 class AskRequest(BaseModel):
@@ -514,6 +536,16 @@ def load_workspace(
             or ""
         )
         preview_sections = structure_manual_page(preview_text)
+    media_document_id = None
+    if selected_document:
+        media_document_id = int(selected_document["id"])
+    elif selected_manual and selected_manual["source_document_id"]:
+        media_document_id = int(selected_manual["source_document_id"])
+    page_media = (
+        list_page_media(media_document_id, selected_page)
+        if media_document_id
+        else []
+    )
     suggested_product_slug = ""
     suggested_display_name = ""
     suggested_source_language = "ko"
@@ -548,6 +580,7 @@ def load_workspace(
         "admin_page_blocks": admin_page_blocks,
         "preview_page_blocks": preview_page_blocks,
         "preview_sections": preview_sections,
+        "page_media": page_media,
         "suggested_product_slug": suggested_product_slug,
         "suggested_display_name": suggested_display_name,
         "suggested_source_language": suggested_source_language,
@@ -602,6 +635,44 @@ def document_page_image(document_id: int, page_number: int) -> Response:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(content=image, media_type="image/png")
+
+
+@app.get("/api/manual-media/{media_id}")
+def manual_media_info(media_id: int) -> dict[str, object]:
+    with db() as conn:
+        row = conn.execute(
+            "select id, media_type, title, alt_text, files_json from manual_page_media where id = ? and is_published = 1",
+            (media_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Manual media was not found.")
+    filenames = json.loads(row["files_json"] or "[]")
+    return {
+        "id": row["id"],
+        "media_type": row["media_type"],
+        "title": row["title"],
+        "alt_text": row["alt_text"] or row["title"],
+        "files": [f"/manual-media/{media_id}/{index}" for index in range(len(filenames))],
+    }
+
+
+@app.get("/manual-media/{media_id}/{file_index}")
+def manual_media_file(media_id: int, file_index: int) -> FileResponse:
+    with db() as conn:
+        row = conn.execute(
+            "select files_json from manual_page_media where id = ? and is_published = 1",
+            (media_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Manual media was not found.")
+    filenames = json.loads(row["files_json"] or "[]")
+    if file_index < 0 or file_index >= len(filenames):
+        raise HTTPException(status_code=404, detail="Media file was not found.")
+    media_root = settings.manual_media_dir.resolve()
+    path = (media_root / filenames[file_index]).resolve()
+    if path.parent != media_root or not path.exists():
+        raise HTTPException(status_code=404, detail="Media file was not found.")
+    return FileResponse(path)
 
 
 @app.get("/api/documents")
@@ -729,6 +800,119 @@ def save_ocr_page_form(
             "request": request,
             "app_name": settings.app_name,
             "upload_message": f"Saved OCR text for page {page}.",
+            **workspace,
+        },
+    )
+
+
+@app.post("/manual-media-upload-form", response_class=HTMLResponse)
+async def manual_media_upload_form(
+    request: Request,
+    document_id: int = Form(...),
+    page: int = Form(1),
+    media_type: str = Form(...),
+    title: str = Form(...),
+    alt_text: str = Form(""),
+    x_percent: float = Form(...),
+    y_percent: float = Form(...),
+    width_percent: float = Form(...),
+    height_percent: float = Form(...),
+    files: list[UploadFile] = File(...),
+) -> HTMLResponse:
+    if media_type not in MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported media type.")
+    if not files or (media_type in {"image", "gif"} and len(files) != 1):
+        raise HTTPException(status_code=400, detail="Select one file, or multiple frames for a 360 spin.")
+    if media_type == "spin" and len(files) > 72:
+        raise HTTPException(status_code=400, detail="A 360 spin supports up to 72 frames.")
+    if not (0 <= x_percent <= 100 and 0 <= y_percent <= 100):
+        raise HTTPException(status_code=400, detail="Invalid hotspot position.")
+    if not (0.5 <= width_percent <= 100 and 0.5 <= height_percent <= 100):
+        raise HTTPException(status_code=400, detail="Invalid hotspot size.")
+    if x_percent + width_percent > 100.5 or y_percent + height_percent > 100.5:
+        raise HTTPException(status_code=400, detail="Hotspot must stay inside the page image.")
+
+    stored_filenames: list[str] = []
+    total_bytes = 0
+    settings.manual_media_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        for upload in files:
+            suffix = Path(upload.filename or "").suffix.lower()
+            if suffix not in MEDIA_EXTENSIONS:
+                raise HTTPException(status_code=400, detail=f"Unsupported image type: {suffix or 'unknown'}")
+            content = await upload.read()
+            total_bytes += len(content)
+            if len(content) > 25 * 1024 * 1024 or total_bytes > 150 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Media upload is too large.")
+            filename = f"{uuid4().hex}{suffix}"
+            (settings.manual_media_dir / filename).write_bytes(content)
+            stored_filenames.append(filename)
+        with db() as conn:
+            conn.execute(
+                """
+                insert into manual_page_media(
+                  document_id, page_number, media_type, title, alt_text, files_json,
+                  x_percent, y_percent, width_percent, height_percent
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document_id,
+                    page,
+                    media_type,
+                    title.strip() or "Interactive media",
+                    alt_text.strip(),
+                    json.dumps(stored_filenames),
+                    x_percent,
+                    y_percent,
+                    width_percent,
+                    height_percent,
+                ),
+            )
+    except Exception:
+        for filename in stored_filenames:
+            (settings.manual_media_dir / filename).unlink(missing_ok=True)
+        raise
+
+    workspace = load_workspace(document_id, page, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "Interactive media added to this page.",
+            **workspace,
+        },
+    )
+
+
+@app.post("/manual-media-delete-form", response_class=HTMLResponse)
+def manual_media_delete_form(
+    request: Request,
+    media_id: int = Form(...),
+    document_id: int = Form(...),
+    page: int = Form(1),
+) -> HTMLResponse:
+    with db() as conn:
+        row = conn.execute(
+            "select files_json from manual_page_media where id = ? and document_id = ?",
+            (media_id, document_id),
+        ).fetchone()
+        conn.execute(
+            "delete from manual_page_media where id = ? and document_id = ?",
+            (media_id, document_id),
+        )
+    if row:
+        for filename in json.loads(row["files_json"] or "[]"):
+            path = (settings.manual_media_dir / filename).resolve()
+            if path.parent == settings.manual_media_dir.resolve():
+                path.unlink(missing_ok=True)
+    workspace = load_workspace(document_id, page, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "Interactive media removed.",
             **workspace,
         },
     )

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-4">
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-5">
   </head>
   <body>
     <div class="app">
@@ -206,7 +206,12 @@
                 <section class="manual-section">
                   {% if view == 'original' and selected_manual.source_document_id %}
                   <figure class="page-image single-page {% if view == 'original' %}zoom-page{% endif %}">
-                    <img src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
+                    <div class="hotspot-stage">
+                      <img class="zoomable-manual-image" src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
+                      {% for media in page_media if media.is_published %}
+                      <button class="media-hotspot" type="button" data-media-id="{{ media.id }}" title="{{ media.title }}" style="left:{{ media.x_percent }}%;top:{{ media.y_percent }}%;width:{{ media.width_percent }}%;height:{{ media.height_percent }}%;"><span>{% if media.media_type == 'spin' %}360°{% else %}+{% endif %}</span></button>
+                      {% endfor %}
+                    </div>
                     <figcaption>Original source page {{ selected_page }}</figcaption>
                   </figure>
                   {% elif view != 'original' %}
@@ -218,7 +223,12 @@
                     </div>
                     {% if selected_manual.source_document_id %}
                     <figure class="digital-source-visual">
-                      <img class="zoomable-manual-image" src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
+                      <div class="hotspot-stage">
+                        <img class="zoomable-manual-image" src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
+                        {% for media in page_media if media.is_published %}
+                        <button class="media-hotspot" type="button" data-media-id="{{ media.id }}" title="{{ media.title }}" style="left:{{ media.x_percent }}%;top:{{ media.y_percent }}%;width:{{ media.width_percent }}%;height:{{ media.height_percent }}%;"><span>{% if media.media_type == 'spin' %}360°{% else %}+{% endif %}</span></button>
+                        {% endfor %}
+                      </div>
                       <figcaption>
                         <span>Original technical figure and page layout</span>
                         <button class="image-zoom-button" type="button">크게 보기</button>
@@ -287,12 +297,51 @@
 
                 <section class="manual-section" id="page-{{ selected_page }}">
                   <figure class="page-image single-page {% if mode == 'manual_admin' %}source-reference{% endif %}">
-                    <img class="{% if mode == 'manual_admin' %}zoomable-manual-image{% endif %}" src="/documents/{{ selected_document.id }}/pages/{{ selected_page }}.png" alt="{{ selected_document.filename }} page {{ selected_page }}">
+                    <div class="hotspot-stage {% if mode == 'manual_admin' %}admin-hotspot-stage{% endif %}">
+                      <img src="/documents/{{ selected_document.id }}/pages/{{ selected_page }}.png" alt="{{ selected_document.filename }} page {{ selected_page }}">
+                      {% if mode == 'manual_admin' %}<div class="hotspot-selection" hidden></div>{% endif %}
+                      {% for media in page_media %}
+                      <button class="media-hotspot {% if mode == 'manual_admin' %}admin-media-hotspot{% endif %}" type="button" data-media-id="{{ media.id }}" title="{{ media.title }}" style="left:{{ media.x_percent }}%;top:{{ media.y_percent }}%;width:{{ media.width_percent }}%;height:{{ media.height_percent }}%;"><span>{% if media.media_type == 'spin' %}360°{% else %}+{% endif %}</span></button>
+                      {% endfor %}
+                    </div>
                     <figcaption>
                       <span>{% if mode == 'manual_admin' %}Original manual · Page {{ selected_page }}{% else %}Original PDF page {{ selected_page }}{% endif %}</span>
                       {% if mode == 'manual_admin' %}<button class="image-zoom-button" type="button">크게 보기</button>{% endif %}
                     </figcaption>
                   </figure>
+
+                  {% if mode == 'manual_admin' %}
+                  <section class="media-admin-panel">
+                    <div class="media-admin-head">
+                      <div><span>INTERACTIVE MEDIA</span><h2>페이지 이미지·360° 추가</h2></div>
+                      <button id="start-hotspot-selection" type="button">영역 선택</button>
+                    </div>
+                    <p>원본 페이지에서 연결할 영역을 드래그한 뒤 이미지, GIF 또는 여러 각도의 제품 이미지를 등록하세요.</p>
+                    <form id="manual-media-upload-form" action="/manual-media-upload-form" method="post" enctype="multipart/form-data">
+                      <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                      <input type="hidden" name="page" value="{{ selected_page }}">
+                      <input type="hidden" name="x_percent" value="">
+                      <input type="hidden" name="y_percent" value="">
+                      <input type="hidden" name="width_percent" value="">
+                      <input type="hidden" name="height_percent" value="">
+                      <div class="media-form-grid">
+                        <label>미디어 유형<select name="media_type" id="media-type"><option value="image">확대 이미지</option><option value="gif">GIF / Animated WebP</option><option value="spin">360° 회전 이미지</option></select></label>
+                        <label>제목<input name="title" placeholder="예: Generator exterior" required></label>
+                      </div>
+                      <label>설명<input name="alt_text" placeholder="이미지를 볼 수 없는 사용자를 위한 설명"></label>
+                      <label>파일<input id="manual-media-files" type="file" name="files" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" required><small id="media-file-help">이미지 또는 GIF는 한 파일을 선택하세요.</small></label>
+                      <div class="hotspot-coordinate-status">먼저 <strong>영역 선택</strong>을 눌러 원본 페이지에서 위치를 지정하세요.</div>
+                      <button class="media-save-button" type="submit">Preview 미디어 등록</button>
+                    </form>
+                    {% if page_media %}
+                    <div class="page-media-list">
+                      {% for media in page_media %}
+                      <div><span><strong>{{ media.title }}</strong><small>{{ media.media_type|upper }}</small></span><form action="/manual-media-delete-form" method="post"><input type="hidden" name="media_id" value="{{ media.id }}"><input type="hidden" name="document_id" value="{{ selected_document.id }}"><input type="hidden" name="page" value="{{ selected_page }}"><button type="submit">삭제</button></form></div>
+                      {% endfor %}
+                    </div>
+                    {% endif %}
+                  </section>
+                  {% endif %}
 
                   {% if mode == 'manual_admin' %}
                   {% if admin_manual %}
@@ -750,7 +799,11 @@
     </div>
     <div class="image-lightbox" role="dialog" aria-modal="true" aria-label="매뉴얼 이미지 확대" hidden>
       <button class="image-lightbox-close" type="button" aria-label="닫기">×</button>
-      <img alt="확대된 매뉴얼 페이지">
+      <div class="image-lightbox-content">
+        <h2 class="image-lightbox-title"></h2>
+        <img alt="확대된 매뉴얼 페이지">
+        <p class="spin-viewer-hint" hidden>Drag left or right to rotate 360°</p>
+      </div>
     </div>
     <script>
       (() => {
@@ -798,15 +851,137 @@
 
         const lightbox = document.querySelector('.image-lightbox');
         const lightboxImage = lightbox?.querySelector('img');
-        const closeLightbox = () => { if (lightbox) lightbox.hidden = true; };
+        const lightboxTitle = lightbox?.querySelector('.image-lightbox-title');
+        const spinHint = lightbox?.querySelector('.spin-viewer-hint');
+        let spinFrames = [];
+        let spinIndex = 0;
+        const closeLightbox = () => {
+          if (lightbox) lightbox.hidden = true;
+          spinFrames = [];
+        };
         document.querySelectorAll('.image-zoom-button, .zoomable-manual-image').forEach((control) => {
           control.addEventListener('click', () => {
             const image = control.closest('figure')?.querySelector('img');
             if (!lightbox || !lightboxImage || !image) return;
             lightboxImage.src = image.src;
             lightboxImage.alt = image.alt;
+            if (lightboxTitle) lightboxTitle.textContent = image.alt;
+            if (spinHint) spinHint.hidden = true;
+            spinFrames = [];
             lightbox.hidden = false;
           });
+        });
+        document.querySelectorAll('.media-hotspot').forEach((hotspot) => {
+          hotspot.addEventListener('pointerdown', (event) => event.stopPropagation());
+          hotspot.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const response = await fetch(`/api/manual-media/${hotspot.dataset.mediaId}`);
+            if (!response.ok || !lightbox || !lightboxImage) return;
+            const media = await response.json();
+            spinFrames = media.media_type === 'spin' ? media.files : [];
+            spinIndex = 0;
+            lightboxImage.src = media.files[0];
+            lightboxImage.alt = media.alt_text || media.title;
+            if (lightboxTitle) lightboxTitle.textContent = media.title;
+            if (spinHint) spinHint.hidden = media.media_type !== 'spin';
+            lightbox.hidden = false;
+          });
+        });
+        let spinDragStart = null;
+        let spinStartIndex = 0;
+        lightboxImage?.addEventListener('pointerdown', (event) => {
+          if (spinFrames.length < 2) return;
+          spinDragStart = event.clientX;
+          spinStartIndex = spinIndex;
+          lightboxImage.setPointerCapture(event.pointerId);
+        });
+        lightboxImage?.addEventListener('pointermove', (event) => {
+          if (spinDragStart === null || spinFrames.length < 2) return;
+          const frameDelta = Math.round((event.clientX - spinDragStart) / 12);
+          spinIndex = ((spinStartIndex - frameDelta) % spinFrames.length + spinFrames.length) % spinFrames.length;
+          lightboxImage.src = spinFrames[spinIndex];
+        });
+        const finishSpin = () => { spinDragStart = null; };
+        lightboxImage?.addEventListener('pointerup', finishSpin);
+        lightboxImage?.addEventListener('pointercancel', finishSpin);
+
+        const adminStage = document.querySelector('.admin-hotspot-stage');
+        const selectionButton = document.querySelector('#start-hotspot-selection');
+        const selectionBox = adminStage?.querySelector('.hotspot-selection');
+        const mediaForm = document.querySelector('#manual-media-upload-form');
+        const coordinateStatus = mediaForm?.querySelector('.hotspot-coordinate-status');
+        const coordinateInputs = mediaForm ? {
+          x: mediaForm.querySelector('[name="x_percent"]'),
+          y: mediaForm.querySelector('[name="y_percent"]'),
+          width: mediaForm.querySelector('[name="width_percent"]'),
+          height: mediaForm.querySelector('[name="height_percent"]')
+        } : null;
+        let selectionStart = null;
+        selectionButton?.addEventListener('click', () => {
+          adminStage?.classList.add('selecting');
+          selectionButton.textContent = '원본 페이지에서 드래그하세요';
+        });
+        adminStage?.addEventListener('pointerdown', (event) => {
+          if (!adminStage.classList.contains('selecting') || event.target.closest('.media-hotspot')) return;
+          event.preventDefault();
+          const rect = adminStage.getBoundingClientRect();
+          selectionStart = {
+            x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+            y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+            rect
+          };
+          if (selectionBox) {
+            selectionBox.hidden = false;
+            selectionBox.style.left = `${selectionStart.x}px`;
+            selectionBox.style.top = `${selectionStart.y}px`;
+            selectionBox.style.width = '0';
+            selectionBox.style.height = '0';
+          }
+          adminStage.setPointerCapture(event.pointerId);
+        });
+        adminStage?.addEventListener('pointermove', (event) => {
+          if (!selectionStart || !selectionBox) return;
+          const x = Math.max(0, Math.min(selectionStart.rect.width, event.clientX - selectionStart.rect.left));
+          const y = Math.max(0, Math.min(selectionStart.rect.height, event.clientY - selectionStart.rect.top));
+          selectionBox.style.left = `${Math.min(selectionStart.x, x)}px`;
+          selectionBox.style.top = `${Math.min(selectionStart.y, y)}px`;
+          selectionBox.style.width = `${Math.abs(x - selectionStart.x)}px`;
+          selectionBox.style.height = `${Math.abs(y - selectionStart.y)}px`;
+        });
+        const finishSelection = () => {
+          if (!selectionStart || !selectionBox || !coordinateInputs) return;
+          const left = parseFloat(selectionBox.style.left);
+          const top = parseFloat(selectionBox.style.top);
+          const width = parseFloat(selectionBox.style.width);
+          const height = parseFloat(selectionBox.style.height);
+          coordinateInputs.x.value = (left / selectionStart.rect.width * 100).toFixed(2);
+          coordinateInputs.y.value = (top / selectionStart.rect.height * 100).toFixed(2);
+          coordinateInputs.width.value = (width / selectionStart.rect.width * 100).toFixed(2);
+          coordinateInputs.height.value = (height / selectionStart.rect.height * 100).toFixed(2);
+          if (coordinateStatus) coordinateStatus.innerHTML = '<strong>영역이 지정되었습니다.</strong> 파일을 선택하고 등록하세요.';
+          adminStage.classList.remove('selecting');
+          if (selectionButton) selectionButton.textContent = '영역 다시 선택';
+          selectionStart = null;
+        };
+        adminStage?.addEventListener('pointerup', finishSelection);
+        adminStage?.addEventListener('pointercancel', finishSelection);
+        mediaForm?.addEventListener('submit', (event) => {
+          if (!coordinateInputs?.width.value || Number(coordinateInputs.width.value) < 0.5) {
+            event.preventDefault();
+            alert('원본 페이지에서 미디어를 연결할 영역을 먼저 선택하세요.');
+          }
+        });
+        const mediaType = document.querySelector('#media-type');
+        const mediaFiles = document.querySelector('#manual-media-files');
+        const mediaHelp = document.querySelector('#media-file-help');
+        mediaType?.addEventListener('change', () => {
+          const isSpin = mediaType.value === 'spin';
+          if (mediaFiles) {
+            mediaFiles.multiple = isSpin;
+            mediaFiles.value = '';
+          }
+          if (mediaHelp) mediaHelp.textContent = isSpin ? '회전 순서대로 촬영한 이미지 12~36장을 한 번에 선택하세요.' : '이미지 또는 GIF 한 파일을 선택하세요.';
         });
         lightbox?.querySelector('.image-lightbox-close')?.addEventListener('click', closeLightbox);
         lightbox?.addEventListener('click', (event) => { if (event.target === lightbox) closeLightbox(); });

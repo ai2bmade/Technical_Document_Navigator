@@ -43,6 +43,10 @@ class Settings:
         return self.app_data_dir / "ocr_tmp"
 
     @property
+    def manual_media_dir(self) -> Path:
+        return self.app_data_dir / "manual_media"
+
+    @property
     def sqlite_path(self) -> Path:
         return self.app_data_dir / "data" / "industrial_copilot.sqlite3"
 
