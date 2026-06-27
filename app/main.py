@@ -1300,6 +1300,53 @@ def delete_document_form(request: Request, document_id: int = Form(...)) -> HTML
     )
 
 
+@app.post("/delete-review-document-form", response_class=HTMLResponse)
+def delete_review_document_form(
+    request: Request,
+    document_id: int = Form(...),
+    mode: str = Form(...),
+) -> HTMLResponse:
+    if mode not in {"spec", "layout"}:
+        raise HTTPException(status_code=400, detail="Invalid review workspace.")
+    expected_workspace = workspace_for_mode(mode)
+    with db() as conn:
+        row = conn.execute(
+            """
+            select filename, stored_path, workspace
+            from documents
+            where id = ?
+            """,
+            (document_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Document was not found.")
+        if row["workspace"] != expected_workspace:
+            raise HTTPException(status_code=409, detail="Document belongs to another workspace.")
+        stored_path = Path(row["stored_path"])
+        filename = row["filename"]
+        conn.execute("delete from documents where id = ?", (document_id,))
+        remaining_references = conn.execute(
+            "select count(*) from documents where stored_path = ?",
+            (str(stored_path),),
+        ).fetchone()[0]
+    if not remaining_references:
+        try:
+            stored_path.resolve().relative_to(settings.uploads_dir.resolve())
+            stored_path.unlink(missing_ok=True)
+        except ValueError:
+            pass
+    workspace = load_workspace(mode=mode)
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": f"Deleted {filename} from the review workspace.",
+            **workspace,
+        },
+    )
+
+
 @app.post("/delete-product-family-form", response_class=HTMLResponse)
 def delete_product_family_form(
     request: Request,

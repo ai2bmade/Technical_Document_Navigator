@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-8">
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-9">
   </head>
   <body>
     <div class="app">
@@ -73,6 +73,7 @@
           </div>
           <div class="doc-list">
             {% for doc in documents %}
+            <div class="doc-card-row">
             <a class="doc-card {% if selected_document and doc.id == selected_document.id %}active{% endif %}" href="/?mode={{ mode }}&document_id={{ doc.id }}&page=1">
               <div class="doc-title">#{{ doc.id }} {{ doc.filename }}</div>
               <div class="doc-meta">{{ doc.page_count }} pages · {{ doc.chunk_count }} chunks</div>
@@ -84,6 +85,14 @@
               <span class="status ready">Indexed</span>
               {% endif %}
             </a>
+            {% if mode in ['spec', 'layout'] %}
+            <form class="review-document-delete" action="/delete-review-document-form" method="post" onsubmit="return confirm('{{ doc.filename }} 파일과 저장된 분석 결과를 삭제할까요?');">
+              <input type="hidden" name="document_id" value="{{ doc.id }}">
+              <input type="hidden" name="mode" value="{{ mode }}">
+              <button type="submit" title="{{ doc.filename }} 삭제" aria-label="Delete {{ doc.filename }}">삭제</button>
+            </form>
+            {% endif %}
+            </div>
             {% else %}
             <div class="empty">No documents uploaded yet.</div>
             {% endfor %}
