@@ -27,6 +27,7 @@ from app.manual_pipeline import (
     add_manual_page_block,
     check_translation_accuracy,
     create_manual_version_from_document,
+    create_reviewed_page_translation,
     create_reviewed_translation_version,
     delete_manual_page_block,
     generate_translation_draft,
@@ -423,16 +424,34 @@ def load_workspace(
                     """,
                     (selected_document["id"],),
                 ).fetchone()
-                if admin_manual and admin_manual["language"] == "en":
+                if admin_manual:
                     translation = conn.execute(
                         """
                         select mpt.final_translation, mpt.status
-                        from manual_pages mp
+                        from manual_versions mv
+                        join manual_pages mp on mp.manual_version_id = mv.id
                         join manual_page_translations mpt on mpt.manual_page_id = mp.id
-                        where mp.manual_version_id = ? and mp.page_number = ? and mpt.language = 'ko'
+                        where mv.product_family_id = ? and mv.language = 'en'
+                          and mp.page_number = ? and mpt.language = 'ko'
+                          and coalesce(mpt.final_translation, '') <> ''
+                        order by mpt.updated_at desc
+                        limit 1
                         """,
-                        (admin_manual["manual_version_id"], selected_page),
+                        (admin_manual["product_family_id"], selected_page),
                     ).fetchone()
+                    if translation is None:
+                        translation = conn.execute(
+                            """
+                            select mp.published_text as final_translation, mp.status
+                            from manual_versions mv
+                            join manual_pages mp on mp.manual_version_id = mv.id
+                            where mv.product_family_id = ? and mv.language = 'ko'
+                              and mp.page_number = ? and mp.status = 'published_translation'
+                            order by mp.updated_at desc
+                            limit 1
+                            """,
+                            (admin_manual["product_family_id"], selected_page),
+                        ).fetchone()
                     if translation:
                         admin_korean_translation = dict(translation)
         if mode == "preview" and product_manuals:
@@ -741,6 +760,42 @@ def manual_block_add_form(
             "request": request,
             "app_name": settings.app_name,
             "upload_message": "Content block added.",
+            **workspace,
+        },
+    )
+
+
+@app.post("/translate-page-ko-form", response_class=HTMLResponse)
+def translate_page_ko_form(
+    request: Request,
+    document_id: int = Form(...),
+    page: int = Form(1),
+) -> HTMLResponse:
+    with db() as conn:
+        source = conn.execute(
+            """
+            select mv.id
+            from manual_versions mv
+            where mv.source_document_id = ? and mv.language = 'en'
+            order by case when mv.status = 'published_translation' then 1 else 0 end, mv.id
+            limit 1
+            """,
+            (document_id,),
+        ).fetchone()
+    message = "영어 매뉴얼을 먼저 등록해 주세요."
+    if source:
+        try:
+            create_reviewed_page_translation(int(source["id"]), page, "ko")
+            message = f"Page {page} 한국어 번역본을 생성했습니다."
+        except Exception as exc:
+            message = f"한국어 번역을 완료하지 못했습니다: {exc}"
+    workspace = load_workspace(document_id, page, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": message,
             **workspace,
         },
     )

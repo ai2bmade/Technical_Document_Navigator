@@ -1554,6 +1554,19 @@ button.pill {
   padding: 16px;
 }
 
+.translation-pending p {
+  margin: 0 0 10px;
+}
+
+.translation-pending button {
+  background: #2563eb;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  font-weight: 800;
+  padding: 9px 13px;
+}
+
 .assistant-result h3 {
   color: #0f172a;
   font-size: 16px;

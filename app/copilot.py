@@ -34,6 +34,12 @@ def compact_text(text: str, limit: int = 900) -> str:
     return text[: limit - 3].rstrip() + "..."
 
 
+def clean_assistant_text(text: str) -> str:
+    text = text.replace("**", "").replace("__", "")
+    text = re.sub(r"(?<!\w)\*([^*\n]+)\*", r"\1", text)
+    return text.strip()
+
+
 def page_action(action: str, page_text: str, filename: str, page_number: int) -> dict[str, object]:
     text = compact_text(page_text, 1600)
     if not text:
@@ -174,7 +180,8 @@ def answer_question_with_ai(
                     f"Answer in {language_name}. Use only the selected manual knowledge and context provided below. "
                     "If the context does not support the answer, say that the manual evidence is insufficient. "
                     "Do not invent specifications, safety instructions, or procedures. Preserve numbers, units, "
-                    "model names, warning words, and button labels exactly when they appear in the evidence."
+                    "model names, warning words, and button labels exactly when they appear in the evidence. "
+                    "Use plain text without Markdown emphasis markers such as ** or __."
                 ),
                 (
                     "Search did not find a focused passage, so use this structured knowledge and broader selected-manual context.\n\n"
@@ -185,7 +192,7 @@ def answer_question_with_ai(
                 ),
             )
             return {
-                "answer": answer,
+                "answer": clean_assistant_text(answer),
                 "evidence": [],
                 "needs_ocr": False,
                 "engine": "openai_broad_context",
@@ -202,7 +209,7 @@ def answer_question_with_ai(
                 f"Customer question:\n{question}"
             ),
         )
-        return {"answer": answer, "evidence": [], "needs_ocr": False, "engine": "openai"}
+        return {"answer": clean_assistant_text(answer), "evidence": [], "needs_ocr": False, "engine": "openai"}
 
     evidence_blocks = []
     for index, hit in enumerate(hits, start=1):
@@ -215,7 +222,8 @@ def answer_question_with_ai(
         "First understand the customer's intent semantically. Do not blindly repeat the top search hit if it does not answer the question. "
         "If the manual context is incomplete or the customer asks something unrelated, say so clearly and do not guess. "
         "Preserve model names, numbers, units, warning words, and button labels exactly when they appear in the evidence. "
-        "Give a practical answer customers can use. Include page references only when the page marker or search hit supports them."
+        "Give a practical answer customers can use. Include page references only when the page marker or search hit supports them. "
+        "Use plain text without Markdown emphasis markers such as ** or __."
     )
     prompt = (
         f"Customer question:\n{question}\n\n"
@@ -241,7 +249,7 @@ def answer_question_with_ai(
             (question, answer),
         )
     return {
-        "answer": answer,
+        "answer": clean_assistant_text(answer),
         "evidence": [
             {
                 "document_id": hit.document_id,

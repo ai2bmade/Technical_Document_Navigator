@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-3">
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-4">
   </head>
   <body>
     <div class="app">
@@ -386,7 +386,14 @@
                       {% if admin_korean_translation and admin_korean_translation.final_translation %}
                       <div class="translated-manual-copy">{{ admin_korean_translation.final_translation }}</div>
                       {% else %}
-                      <p class="translation-pending">매뉴얼 등록 후 검수된 한국어 번역본이 표시됩니다.</p>
+                      <div class="translation-pending">
+                        <p>현재 페이지의 한국어 번역본이 아직 없습니다.</p>
+                        <form action="/translate-page-ko-form" method="post">
+                          <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                          <input type="hidden" name="page" value="{{ selected_page }}">
+                          <button type="submit">한국어 번역 생성</button>
+                        </form>
+                      </div>
                       {% endif %}
                     </section>
                     {% endif %}
@@ -505,7 +512,7 @@
               <input type="hidden" name="view" value="{{ view }}">
               <input type="hidden" name="page" value="{{ selected_page }}">
               <input type="hidden" name="action" value="easy">
-              <button type="submit">Explain Simply</button>
+              <button type="submit">Simple Explanation</button>
             </form>
             <form action="/quick-form" method="post">
               <input type="hidden" name="document_id" value="{{ selected_manual.source_document_id }}">

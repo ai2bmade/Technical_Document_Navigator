@@ -404,7 +404,7 @@ def generate_translation_draft(manual_version_id: int, page_number: int, target_
         "button labels, warnings, and step order. Do not invent missing content. If uncertain, mark [CHECK]."
     )
     prompt = (
-        f"Translate this Korean manual page into {language_name}.\n\n"
+        f"Translate this source manual page into {language_name}.\n\n"
         f"Product: {page['display_name']}\n"
         f"Page: {page_number}\n\n"
         f"Source text:\n{source_text}"
@@ -492,6 +492,17 @@ def native_review_translation(manual_page_id: int, target_language: str) -> dict
             (final, final, row["id"]),
         )
     return {"translation_id": row["id"], "status": "native_reviewed", "text": final}
+
+
+def create_reviewed_page_translation(
+    source_manual_version_id: int,
+    page_number: int,
+    target_language: str,
+) -> dict[str, object]:
+    page = get_manual_page(source_manual_version_id, page_number)
+    generate_translation_draft(source_manual_version_id, page_number, target_language)
+    check_translation_accuracy(int(page["id"]), target_language)
+    return native_review_translation(int(page["id"]), target_language)
 
 
 def create_reviewed_translation_version(
