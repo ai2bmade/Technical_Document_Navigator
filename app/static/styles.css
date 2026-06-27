@@ -720,6 +720,95 @@ button.pill {
   padding: 10px 14px;
 }
 
+.markdown-editor-heading,
+.markdown-editor-footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.editor-eyebrow {
+  color: #64748b;
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  margin-bottom: 4px;
+}
+
+.editor-status {
+  background: #ecfdf3;
+  border: 1px solid #abefc6;
+  border-radius: 999px;
+  color: #067647;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+.markdown-toolbar {
+  align-items: center;
+  background: #eef2f7;
+  border: 1px solid #cbd5e1;
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px;
+}
+
+.ocr-edit-form .markdown-toolbar button {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #344054;
+  font-size: 12px;
+  min-height: 32px;
+  padding: 6px 9px;
+}
+
+.ocr-edit-form .markdown-toolbar button:hover {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.markdown-toolbar-divider {
+  align-self: stretch;
+  border-left: 1px solid #cbd5e1;
+  margin: 2px 3px;
+}
+
+.markdown-toolbar select {
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #344054;
+  font: inherit;
+  font-size: 12px;
+  min-height: 32px;
+  padding: 5px 8px;
+}
+
+.ocr-edit-form #markdown-editor {
+  border-radius: 0 0 10px 10px;
+  font-family: "Cascadia Code", Consolas, monospace;
+  margin-top: -12px;
+}
+
+.markdown-editor-footer {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.markdown-editor-footer code {
+  background: #e2e8f0;
+  border-radius: 4px;
+  color: #344054;
+  padding: 1px 4px;
+}
+
 .manual-section p {
   color: #334155;
   font-size: 15px;
@@ -1216,6 +1305,69 @@ button.pill {
   line-height: 1.85;
   margin: 0 0 20px;
   white-space: pre-line;
+}
+
+.digital-manual .doc-paragraph strong {
+  color: #172033;
+  font-weight: 800;
+}
+
+.digital-manual .doc-paragraph code {
+  background: #eef2f6;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  color: #344054;
+  font: .88em "Cascadia Code", Consolas, monospace;
+  padding: 2px 5px;
+}
+
+.doc-bullet-list {
+  list-style: disc;
+}
+
+.doc-callout {
+  background: #fffaeb;
+  border: 1px solid #fedf89;
+  border-left: 5px solid #f79009;
+  color: #7a2e0e;
+  margin: 24px 0;
+  padding: 16px 18px;
+}
+
+.doc-callout strong {
+  display: block;
+  font-size: 12px;
+  letter-spacing: .06em;
+  margin-bottom: 6px;
+}
+
+.doc-callout p {
+  line-height: 1.65;
+  margin: 0;
+}
+
+.doc-inline-image {
+  background: #f8fafc;
+  border: 1px solid #dbe3ec;
+  margin: 30px 0;
+  padding: 12px;
+}
+
+.doc-inline-image img {
+  cursor: zoom-in;
+  display: block;
+  height: auto;
+  margin: 0 auto;
+  max-height: 720px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.doc-inline-image figcaption {
+  color: #64748b;
+  font-size: 12px;
+  padding: 10px 4px 2px;
+  text-align: center;
 }
 
 .doc-alert,

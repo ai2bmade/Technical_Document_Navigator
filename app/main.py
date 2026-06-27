@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import html
 import re
 import shutil
 import sqlite3
@@ -201,19 +202,67 @@ def structure_manual_page(text: str) -> list[dict[str, object]]:
     sections: list[dict[str, object]] = []
     paragraph: list[str] = []
     numbered_items: list[str] = []
+    bullet_items: list[str] = []
     seen_headings: set[str] = set()
+
+    def inline_markdown(value: str) -> str:
+        escaped = html.escape(value)
+        escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+        escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+        return escaped
 
     def flush_paragraph() -> None:
         if paragraph:
-            sections.append({"type": "paragraph", "text": " ".join(paragraph)})
+            value = " ".join(paragraph)
+            sections.append({"type": "paragraph", "text": value, "html": inline_markdown(value)})
             paragraph.clear()
 
     def flush_items() -> None:
         if numbered_items:
             sections.append({"type": "list", "items": list(numbered_items)})
             numbered_items.clear()
+        if bullet_items:
+            sections.append({"type": "bullets", "items": list(bullet_items)})
+            bullet_items.clear()
 
     for line in lines:
+        markdown_image = re.fullmatch(r"!\[([^\]]*)\]\((/manual-media/\d+/\d+)\)", line)
+        if markdown_image:
+            flush_paragraph()
+            flush_items()
+            sections.append({
+                "type": "image",
+                "caption": markdown_image.group(1) or "Manual image",
+                "url": markdown_image.group(2),
+            })
+            continue
+        markdown_heading = re.match(r"^(#{1,3})\s+(.+)$", line)
+        if markdown_heading:
+            flush_paragraph()
+            flush_items()
+            sections.append({
+                "type": "heading",
+                "text": re.sub(r"\*\*", "", markdown_heading.group(2)).strip(),
+                "level": 1 if len(markdown_heading.group(1)) == 1 else 2,
+            })
+            continue
+        bullet = re.match(r"^[-*]\s+(.+)$", line)
+        if bullet:
+            flush_paragraph()
+            if numbered_items:
+                flush_items()
+            bullet_items.append(bullet.group(1).strip())
+            continue
+        warning = re.match(
+            r"^>\s*\*{0,2}(Warning|Caution|Note)(?::\*{0,2}|\*{1,2}:)?\s*(.*)$",
+            line,
+            re.I,
+        )
+        if warning:
+            flush_paragraph()
+            flush_items()
+            sections.append({"type": "callout", "label": warning.group(1).upper(), "text": warning.group(2).strip()})
+            continue
         if re.fullmatch(r"[A-Z]{2,}[A-Z0-9-]*\s+\d{1,4}", line):
             continue
         if line.lower() == "section":
@@ -221,6 +270,8 @@ def structure_manual_page(text: str) -> list[dict[str, object]]:
         item = re.match(r"^\(?\d+\)?[.)]?\s+(.+)$", line)
         if item:
             flush_paragraph()
+            if bullet_items:
+                flush_items()
             numbered_items.append(item.group(1).strip())
             continue
         flush_items()
@@ -812,7 +863,15 @@ def save_ocr_page_form(
             """,
             (text, text, text, page, document_id),
         )
-    background_tasks.add_task(process_manual_document_safely, document_id)
+        conn.execute(
+            """
+            update document_page_corrections
+            set corrected_text = ?, updated_at = current_timestamp
+            where document_id = ? and page_number = ?
+            """,
+            (text, document_id, page),
+        )
+    background_tasks.add_task(build_manual_knowledge_safely, document_id)
     workspace = load_workspace(document_id, page, mode="manual_admin")
     return templates.TemplateResponse(
         "index.html",

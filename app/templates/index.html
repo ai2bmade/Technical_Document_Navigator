@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-7">
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-8">
   </head>
   <body>
     <div class="app">
@@ -243,10 +243,19 @@
                       <dl class="doc-fact"><dt>{{ section.label }}</dt><dd>{{ section.value }}</dd></dl>
                       {% elif section.type == 'list' %}
                       <ol class="doc-list-structured">{% for item in section['items'] %}<li>{{ item }}</li>{% endfor %}</ol>
+                      {% elif section.type == 'bullets' %}
+                      <ul class="doc-list-structured doc-bullet-list">{% for item in section['items'] %}<li>{{ item }}</li>{% endfor %}</ul>
+                      {% elif section.type == 'callout' %}
+                      <aside class="doc-callout"><strong>{{ section.label }}</strong><p>{{ section.text }}</p></aside>
+                      {% elif section.type == 'image' %}
+                      <figure class="doc-inline-image">
+                        <img class="zoomable-manual-image" src="{{ section.url }}" alt="{{ section.caption }}">
+                        <figcaption>{{ section.caption }}</figcaption>
+                      </figure>
                       {% elif section.type == 'reference' %}
                       <p class="doc-figure-reference">{{ section.text }}</p>
                       {% else %}
-                      <p class="doc-paragraph">{{ section.text }}</p>
+                      <p class="doc-paragraph">{{ section.html|safe }}</p>
                       {% endif %}
                     {% else %}
                     <p class="doc-paragraph">No published page content is available.</p>
@@ -419,14 +428,39 @@
                   <details class="source-import-details" open>
                     <summary>페이지 텍스트 검수 및 수정</summary>
                     <form class="ocr-edit-form" action="/save-ocr-page-form" method="post">
-                      <h2>OCR 추출 텍스트</h2>
-                      <p>원본 페이지와 비교해 오탈자, 숫자, 단위, 모델명을 확인한 뒤 직접 수정할 수 있습니다.</p>
+                      <div class="markdown-editor-heading">
+                        <div>
+                          <span class="editor-eyebrow">PAGE CONTENT</span>
+                          <h2>OCR 추출 텍스트 / Markdown 편집</h2>
+                        </div>
+                        <span class="editor-status">Preview에 문서 형식으로 반영</span>
+                      </div>
+                      <p>원본 페이지와 비교해 내용을 수정하고 제목, 목록, 경고, 강조 및 등록 이미지를 배치할 수 있습니다.</p>
                       <input type="hidden" name="document_id" value="{{ selected_document.id }}">
                       <input type="hidden" name="page" value="{{ selected_page }}">
-                      <textarea name="corrected_text" rows="16">{% if selected_page_correction %}{{ selected_page_correction.corrected_text }}{% else %}{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}
+                      <div class="markdown-toolbar" role="toolbar" aria-label="Markdown formatting">
+                        <button type="button" data-md-action="h1" title="대제목">H1</button>
+                        <button type="button" data-md-action="h2" title="소제목">H2</button>
+                        <button type="button" data-md-action="bold" title="굵게"><strong>B</strong></button>
+                        <button type="button" data-md-action="bullet" title="글머리 목록">• List</button>
+                        <button type="button" data-md-action="number" title="번호 목록">1. List</button>
+                        <button type="button" data-md-action="warning" title="경고 상자">Warning</button>
+                        <span class="markdown-toolbar-divider"></span>
+                        <select id="markdown-media-select" aria-label="Insert registered media">
+                          <option value="">등록 이미지 선택</option>
+                          {% for media in page_media if media.media_type != 'spin' %}
+                          <option value="/manual-media/{{ media.id }}/0" data-title="{{ media.title }}">{{ media.title }}</option>
+                          {% endfor %}
+                        </select>
+                        <button type="button" data-md-action="image" title="선택한 이미지를 현재 위치에 삽입">Insert Image</button>
+                      </div>
+                      <textarea id="markdown-editor" name="corrected_text" rows="16" spellcheck="true">{% if selected_page_correction %}{{ selected_page_correction.corrected_text }}{% else %}{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}
 
 {% endif %}{% endfor %}{% endif %}</textarea>
-                      <button type="submit">수정 내용 저장</button>
+                      <div class="markdown-editor-footer">
+                        <span><code>#</code> 제목 · <code>**</code> 강조 · 등록 이미지만 안전하게 표시됩니다.</span>
+                        <button type="submit">수정 내용 저장</button>
+                      </div>
                     </form>
                     {% if suggested_source_language == 'en' %}
                     <section class="translation-review">
@@ -907,6 +941,33 @@
         const finishSpin = () => { spinDragStart = null; };
         lightboxImage?.addEventListener('pointerup', finishSpin);
         lightboxImage?.addEventListener('pointercancel', finishSpin);
+
+        const markdownEditor = document.querySelector('#markdown-editor');
+        const markdownMediaSelect = document.querySelector('#markdown-media-select');
+        const replaceMarkdownSelection = (before, after = '', placeholder = '') => {
+          if (!markdownEditor) return;
+          const start = markdownEditor.selectionStart;
+          const end = markdownEditor.selectionEnd;
+          const selected = markdownEditor.value.slice(start, end) || placeholder;
+          markdownEditor.setRangeText(`${before}${selected}${after}`, start, end, 'end');
+          markdownEditor.focus();
+        };
+        document.querySelectorAll('[data-md-action]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const action = button.dataset.mdAction;
+            if (action === 'h1') replaceMarkdownSelection('# ', '', 'Page title');
+            if (action === 'h2') replaceMarkdownSelection('## ', '', 'Section title');
+            if (action === 'bold') replaceMarkdownSelection('**', '**', 'important text');
+            if (action === 'bullet') replaceMarkdownSelection('- ', '', 'list item');
+            if (action === 'number') replaceMarkdownSelection('1. ', '', 'list item');
+            if (action === 'warning') replaceMarkdownSelection('> **Warning:** ', '', 'Safety information');
+            if (action === 'image' && markdownMediaSelect?.value) {
+              const option = markdownMediaSelect.selectedOptions[0];
+              const title = option?.dataset.title || option?.textContent || 'Manual image';
+              replaceMarkdownSelection(`\n![${title}](${markdownMediaSelect.value})\n`);
+            }
+          });
+        });
 
         const adminStage = document.querySelector('.admin-hotspot-stage');
         const selectionButton = document.querySelector('#start-hotspot-selection');
