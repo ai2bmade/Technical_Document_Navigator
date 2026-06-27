@@ -41,9 +41,9 @@ from app.manual_pipeline import (
     update_manual_page_block,
 )
 from app.openai_service import OpenAIUnavailable
-from app.ocr import run_ocr_for_document
+from app.ocr import ocr_page_region, run_ocr_for_document
 from app.page_images import render_page_png
-from app.pdf_ingest import ingest_pdf
+from app.pdf_ingest import ingest_pdf, split_chunks
 from app.storage import db, init_db
 
 
@@ -879,6 +879,197 @@ def save_ocr_page_form(
             "request": request,
             "app_name": settings.app_name,
             "upload_message": f"Saved OCR text for page {page}.",
+            **workspace,
+        },
+    )
+
+
+@app.post("/save-review-ocr-form", response_class=HTMLResponse)
+def save_review_ocr_form(
+    request: Request,
+    document_id: int = Form(...),
+    page: int = Form(1),
+    mode: str = Form("spec"),
+    corrected_text: str = Form(""),
+) -> HTMLResponse:
+    if mode != "spec":
+        raise HTTPException(status_code=400, detail="OCR editing is only available in Spec Sheet Review.")
+    text = corrected_text.strip()
+    with db() as conn:
+        document = conn.execute(
+            "select workspace from documents where id = ?",
+            (document_id,),
+        ).fetchone()
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document was not found.")
+        if document["workspace"] != "spec":
+            raise HTTPException(status_code=409, detail="Document belongs to another workspace.")
+        old_rows = conn.execute(
+            "select content from chunks where document_id = ? and page_number = ? order by id",
+            (document_id, page),
+        ).fetchall()
+        raw_text = "\n\n".join(row["content"] for row in old_rows)
+        conn.execute(
+            "delete from chunks where document_id = ? and page_number = ?",
+            (document_id, page),
+        )
+        if text:
+            conn.executemany(
+                """
+                insert into chunks(document_id, page_number, section_title, content)
+                values (?, ?, ?, ?)
+                """,
+                [
+                    (document_id, chunk.page_number, chunk.section_title, chunk.content)
+                    for chunk in split_chunks(text, page)
+                ],
+            )
+        conn.execute(
+            """
+            insert into document_page_corrections(
+              document_id, page_number, raw_text, corrected_text, confidence
+            ) values (?, ?, ?, ?, 'human_reviewed')
+            on conflict(document_id, page_number) do update set
+              corrected_text = excluded.corrected_text,
+              confidence = 'human_reviewed',
+              updated_at = current_timestamp
+            """,
+            (document_id, page, raw_text or text, text),
+        )
+        conn.execute(
+            "delete from analysis_reports where document_id = ? and report_type = 'spec'",
+            (document_id,),
+        )
+    workspace = load_workspace(document_id, page, mode="spec")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "OCR 수정본을 저장했습니다. 정밀 분석을 다시 실행하면 수정된 수치가 반영됩니다.",
+            **workspace,
+        },
+    )
+
+
+def run_layout_review_safely(document_id: int) -> dict[str, object]:
+    try:
+        return review_layout(document_id)
+    except OpenAIUnavailable as exc:
+        return {
+            "document_id": document_id,
+            "notice": "부분 OCR은 저장했지만 AI 정밀 분석을 실행할 수 없습니다.",
+            "report": str(exc),
+            "checks": [],
+            "engine": "unavailable",
+        }
+
+
+@app.post("/layout-region-ocr-form", response_class=HTMLResponse)
+def layout_region_ocr_form(
+    request: Request,
+    document_id: int = Form(...),
+    page: int = Form(1),
+    x_percent: float = Form(...),
+    y_percent: float = Form(...),
+    width_percent: float = Form(...),
+    height_percent: float = Form(...),
+) -> HTMLResponse:
+    with db() as conn:
+        document = conn.execute(
+            "select workspace from documents where id = ?",
+            (document_id,),
+        ).fetchone()
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document was not found.")
+    if document["workspace"] != "layout":
+        raise HTTPException(status_code=409, detail="Document belongs to another workspace.")
+    try:
+        text = ocr_page_region(
+            document_id,
+            page,
+            x_percent,
+            y_percent,
+            width_percent,
+            height_percent,
+        )
+    except (ValueError, FileNotFoundError, subprocess.CalledProcessError) as exc:
+        raise HTTPException(status_code=409, detail=f"선택 영역을 판독하지 못했습니다: {exc}") from exc
+
+    chunk_id = None
+    layout_result = None
+    if text:
+        with db() as conn:
+            cursor = conn.execute(
+                """
+                insert into chunks(document_id, page_number, section_title, content)
+                values (?, ?, ?, ?)
+                """,
+                (
+                    document_id,
+                    page,
+                    f"Layout Region OCR ({x_percent:.1f}, {y_percent:.1f}, {width_percent:.1f}, {height_percent:.1f})",
+                    text,
+                ),
+            )
+            chunk_id = int(cursor.lastrowid)
+        layout_result = run_layout_review_safely(document_id)
+        save_analysis_report(document_id, "layout", layout_result)
+    workspace = load_workspace(document_id, page, mode="layout")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "layout_region_result": {
+                "chunk_id": chunk_id,
+                "text": text,
+                "has_text": bool(text),
+            },
+            "layout_result": layout_result,
+            "upload_message": "선택 영역을 고해상도로 다시 판독하고 분석에 반영했습니다." if text else "선택 영역에서 글자를 찾지 못했습니다.",
+            **workspace,
+        },
+    )
+
+
+@app.post("/layout-region-save-form", response_class=HTMLResponse)
+def layout_region_save_form(
+    request: Request,
+    document_id: int = Form(...),
+    page: int = Form(1),
+    chunk_id: int = Form(...),
+    corrected_text: str = Form(""),
+) -> HTMLResponse:
+    text = corrected_text.strip()
+    with db() as conn:
+        chunk = conn.execute(
+            """
+            select c.id
+            from chunks c join documents d on d.id = c.document_id
+            where c.id = ? and c.document_id = ? and c.page_number = ?
+              and d.workspace = 'layout' and c.section_title like 'Layout Region OCR%'
+            """,
+            (chunk_id, document_id, page),
+        ).fetchone()
+        if chunk is None:
+            raise HTTPException(status_code=404, detail="Region OCR result was not found.")
+        conn.execute("update chunks set content = ? where id = ?", (text, chunk_id))
+    layout_result = run_layout_review_safely(document_id)
+    save_analysis_report(document_id, "layout", layout_result)
+    workspace = load_workspace(document_id, page, mode="layout")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "layout_region_result": {
+                "chunk_id": chunk_id,
+                "text": text,
+                "has_text": bool(text),
+            },
+            "layout_result": layout_result,
+            "upload_message": "부분 판독 수정본을 저장하고 레이아웃 분석을 다시 실행했습니다.",
             **workspace,
         },
     )

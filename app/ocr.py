@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 import fitz
 
@@ -31,7 +33,7 @@ def document_path(document_id: int) -> Path:
     return path
 
 
-def run_tesseract(image_path: Path) -> str:
+def run_tesseract(image_path: Path, psm: int = 6) -> str:
     command = [
         settings.tesseract_cmd,
         str(image_path),
@@ -39,7 +41,7 @@ def run_tesseract(image_path: Path) -> str:
         "-l",
         settings.ocr_lang,
         "--psm",
-        "6",
+        str(psm),
     ]
     completed = subprocess.run(
         command,
@@ -50,6 +52,50 @@ def run_tesseract(image_path: Path) -> str:
         errors="replace",
     )
     return completed.stdout.strip()
+
+
+def ocr_page_region(
+    document_id: int,
+    page_number: int,
+    x_percent: float,
+    y_percent: float,
+    width_percent: float,
+    height_percent: float,
+    dpi: int = 400,
+) -> str:
+    if page_number < 1:
+        raise ValueError("Page number must be 1 or greater.")
+    values = (x_percent, y_percent, width_percent, height_percent)
+    if not all(0 <= value <= 100 for value in values[:2]):
+        raise ValueError("Invalid region position.")
+    if not (0.5 <= width_percent <= 100 and 0.5 <= height_percent <= 100):
+        raise ValueError("The selected region is too small or invalid.")
+
+    pdf_path = document_path(document_id)
+    settings.ocr_tmp_dir.mkdir(parents=True, exist_ok=True)
+    image_path = settings.ocr_tmp_dir / f"region_{document_id}_{uuid4().hex}.png"
+    with fitz.open(pdf_path) as document:
+        if page_number > len(document):
+            raise ValueError("Page number is outside the document.")
+        page = document[page_number - 1]
+        page_rect = page.rect
+        clip = fitz.Rect(
+            page_rect.x0 + page_rect.width * x_percent / 100,
+            page_rect.y0 + page_rect.height * y_percent / 100,
+            page_rect.x0 + page_rect.width * (x_percent + width_percent) / 100,
+            page_rect.y0 + page_rect.height * (y_percent + height_percent) / 100,
+        ) & page_rect
+        if clip.is_empty:
+            raise ValueError("The selected region is outside the page.")
+        requested_scale = dpi / 72
+        max_scale = math.sqrt(40_000_000 / max(1, clip.width * clip.height))
+        scale = min(requested_scale, max_scale)
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip, alpha=False)
+        pixmap.save(image_path)
+    try:
+        return run_tesseract(image_path, psm=11)
+    finally:
+        image_path.unlink(missing_ok=True)
 
 
 def ocr_pdf_pages(pdf_path: Path) -> list[OcrPage]:

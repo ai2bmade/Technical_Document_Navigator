@@ -1108,6 +1108,178 @@ button.pill {
   }
 }
 
+.image-lightbox-tools {
+  align-items: center;
+  background: rgba(15, 23, 42, .88);
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 8px;
+  display: flex;
+  gap: 5px;
+  left: 50%;
+  padding: 5px;
+  position: fixed;
+  top: 16px;
+  transform: translateX(-50%);
+  z-index: 1002;
+}
+
+.image-lightbox-tools button {
+  background: #fff;
+  border: 0;
+  border-radius: 5px;
+  color: #172033;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  min-width: 34px;
+  padding: 7px 9px;
+}
+
+.image-lightbox-zoom {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  min-width: 48px;
+  text-align: center;
+}
+
+.review-ocr-editor,
+.layout-region-tool {
+  background: #f8fafc;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  margin-top: 24px;
+  padding: 18px;
+}
+
+.review-ocr-editor summary {
+  color: #172033;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.review-ocr-editor form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.review-editor-head,
+.layout-region-head,
+.review-editor-actions {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+}
+
+.review-editor-head span,
+.layout-region-head span {
+  color: #2563eb;
+  display: block;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  margin-bottom: 3px;
+}
+
+.review-editor-head h2,
+.layout-region-head h2 {
+  color: #172033;
+  font-size: 18px;
+  margin: 0;
+}
+
+.review-editor-head p,
+.layout-region-tool > p {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.review-ocr-editor textarea,
+.layout-region-result textarea {
+  background: #fff;
+  border: 1px solid #98a2b3;
+  border-radius: 7px;
+  box-sizing: border-box;
+  color: #172033;
+  font: 13px/1.65 "Cascadia Code", Consolas, monospace;
+  padding: 12px;
+  resize: vertical;
+  width: 100%;
+}
+
+.review-editor-actions span {
+  color: #667085;
+  font-size: 11px;
+}
+
+.review-editor-actions button,
+.layout-region-head button,
+.layout-region-submit,
+.layout-region-result button {
+  background: #2563eb;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 9px 12px;
+}
+
+.layout-region-tool {
+  display: grid;
+  gap: 13px;
+}
+
+.layout-region-status {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  color: #475467;
+  font-size: 12px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+}
+
+.layout-region-submit:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.layout-region-result {
+  border-top: 1px solid #d0d5dd;
+  display: grid;
+  gap: 10px;
+  padding-top: 16px;
+}
+
+.layout-region-result label {
+  color: #344054;
+  display: grid;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.layout-region-stage.selecting {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.layout-region-selection {
+  background: rgba(37, 99, 235, .14);
+  border: 2px solid #2563eb;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, .18);
+  pointer-events: none;
+  position: absolute;
+  z-index: 4;
+}
+
 @media (max-width: 760px) {
   .app {
     height: auto;
@@ -1274,6 +1446,7 @@ button.pill {
 
 .image-lightbox img {
   background: #fff;
+  flex: 0 0 auto;
   max-height: calc(100vh - 64px);
   max-width: calc(100vw - 64px);
   object-fit: contain;
@@ -1285,8 +1458,12 @@ button.pill {
   align-items: center;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  justify-content: center;
   max-height: 100%;
   max-width: 100%;
+  overflow: auto;
+  width: 100%;
 }
 
 .image-lightbox-title {
@@ -2058,5 +2235,17 @@ button.pill {
 
   .media-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .review-editor-head,
+  .layout-region-head,
+  .review-editor-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .review-editor-actions button,
+  .layout-region-head button {
+    width: 100%;
   }
 }

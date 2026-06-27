@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-9">
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-10">
   </head>
   <body>
     <div class="app">
@@ -317,18 +317,68 @@
 
                 <section class="manual-section" id="page-{{ selected_page }}">
                   <figure class="page-image single-page {% if mode == 'manual_admin' %}source-reference{% endif %}">
-                    <div class="hotspot-stage {% if mode == 'manual_admin' %}admin-hotspot-stage{% endif %}">
-                      <img src="/documents/{{ selected_document.id }}/pages/{{ selected_page }}.png" alt="{{ selected_document.filename }} page {{ selected_page }}">
+                    <div class="hotspot-stage {% if mode == 'manual_admin' %}admin-hotspot-stage{% elif mode == 'layout' %}layout-region-stage{% endif %}">
+                      <img class="{% if mode == 'layout' %}zoomable-manual-image{% endif %}" src="/documents/{{ selected_document.id }}/pages/{{ selected_page }}.png" alt="{{ selected_document.filename }} page {{ selected_page }}">
                       {% if mode == 'manual_admin' %}<div class="hotspot-selection" hidden></div>{% endif %}
+                      {% if mode == 'layout' %}<div class="layout-region-selection" hidden></div>{% endif %}
                       {% for media in page_media %}
                       <button class="media-hotspot {% if mode == 'manual_admin' %}admin-media-hotspot{% endif %}" type="button" data-media-id="{{ media.id }}" title="{{ media.title }}" style="left:{{ media.x_percent }}%;top:{{ media.y_percent }}%;width:{{ media.width_percent }}%;height:{{ media.height_percent }}%;"><span>{% if media.media_type == 'spin' %}360°{% else %}+{% endif %}</span></button>
                       {% endfor %}
                     </div>
                     <figcaption>
                       <span>{% if mode == 'manual_admin' %}Original manual · Page {{ selected_page }}{% else %}Original PDF page {{ selected_page }}{% endif %}</span>
-                      {% if mode == 'manual_admin' %}<button class="image-zoom-button" type="button">Enlarge</button>{% endif %}
+                      {% if mode in ['manual_admin', 'layout'] %}<button class="image-zoom-button" type="button">Enlarge</button>{% endif %}
                     </figcaption>
                   </figure>
+
+                  {% if mode == 'spec' %}
+                  <details class="review-ocr-editor" open>
+                    <summary>OCR 추출 텍스트 확인 및 수정</summary>
+                    <form action="/save-review-ocr-form" method="post">
+                      <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                      <input type="hidden" name="page" value="{{ selected_page }}">
+                      <input type="hidden" name="mode" value="spec">
+                      <div class="review-editor-head">
+                        <div><span>PAGE {{ selected_page }} DATA</span><h2>수치·단위 검수</h2></div>
+                        <p>원본 스펙시트와 대조해 모델명, 수치 및 단위를 수정하세요.</p>
+                      </div>
+                      <textarea name="corrected_text" rows="16" spellcheck="false">{% if selected_page_correction %}{{ selected_page_correction.corrected_text }}{% else %}{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}
+
+{% endif %}{% endfor %}{% endif %}</textarea>
+                      <div class="review-editor-actions">
+                        <span>저장 후 기존 분석은 초기화되며, 다음 정밀 분석부터 수정본을 사용합니다.</span>
+                        <button type="submit">수정본 저장</button>
+                      </div>
+                    </form>
+                  </details>
+                  {% elif mode == 'layout' %}
+                  <section class="layout-region-tool">
+                    <div class="layout-region-head">
+                      <div><span>HIGH-RESOLUTION OCR</span><h2>도면 부분 재판독</h2></div>
+                      <button id="start-layout-region-selection" type="button">판독 영역 선택</button>
+                    </div>
+                    <p>글자나 치수가 작은 부분을 원본 위에서 드래그하세요. 선택 영역만 고해상도로 다시 읽고 레이아웃 분석에 추가합니다.</p>
+                    <form id="layout-region-ocr-form" action="/layout-region-ocr-form" method="post">
+                      <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                      <input type="hidden" name="page" value="{{ selected_page }}">
+                      <input type="hidden" name="x_percent" value="">
+                      <input type="hidden" name="y_percent" value="">
+                      <input type="hidden" name="width_percent" value="">
+                      <input type="hidden" name="height_percent" value="">
+                      <div class="layout-region-status">먼저 <strong>판독 영역 선택</strong>을 눌러 도면에서 범위를 지정하세요.</div>
+                      <button class="layout-region-submit" type="submit" disabled>선택 영역 재판독 및 다시 분석</button>
+                    </form>
+                    {% if layout_region_result %}
+                    <form class="layout-region-result" action="/layout-region-save-form" method="post">
+                      <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                      <input type="hidden" name="page" value="{{ selected_page }}">
+                      <input type="hidden" name="chunk_id" value="{{ layout_region_result.chunk_id }}">
+                      <label>부분 판독 결과<textarea name="corrected_text" rows="9" spellcheck="false">{{ layout_region_result.text }}</textarea></label>
+                      {% if layout_region_result.has_text %}<button type="submit">수정본 저장 및 다시 분석</button>{% endif %}
+                    </form>
+                    {% endif %}
+                  </section>
+                  {% endif %}
 
                   {% if mode == 'manual_admin' %}
                   <section class="media-admin-panel">
@@ -844,6 +894,12 @@
     </div>
     <div class="image-lightbox" role="dialog" aria-modal="true" aria-label="매뉴얼 이미지 확대" hidden>
       <button class="image-lightbox-close" type="button" aria-label="닫기">×</button>
+      <div class="image-lightbox-tools" aria-label="Image zoom controls">
+        <button type="button" data-lightbox-zoom="out" aria-label="Zoom out">−</button>
+        <span class="image-lightbox-zoom">100%</span>
+        <button type="button" data-lightbox-zoom="in" aria-label="Zoom in">+</button>
+        <button type="button" data-lightbox-zoom="reset">Fit</button>
+      </div>
       <div class="image-lightbox-content">
         <h2 class="image-lightbox-title"></h2>
         <img alt="확대된 매뉴얼 페이지">
@@ -898,14 +954,40 @@
         const lightboxImage = lightbox?.querySelector('img');
         const lightboxTitle = lightbox?.querySelector('.image-lightbox-title');
         const spinHint = lightbox?.querySelector('.spin-viewer-hint');
+        const lightboxZoomLabel = lightbox?.querySelector('.image-lightbox-zoom');
         let spinFrames = [];
         let spinIndex = 0;
+        let lightboxZoom = 1;
+        const applyLightboxZoom = () => {
+          if (!lightboxImage) return;
+          if (lightboxZoom === 1) {
+            lightboxImage.style.width = '';
+            lightboxImage.style.maxWidth = '';
+            lightboxImage.style.maxHeight = '';
+          } else {
+            lightboxImage.style.width = `${Math.round(lightboxZoom * 100)}%`;
+            lightboxImage.style.maxWidth = 'none';
+            lightboxImage.style.maxHeight = 'none';
+          }
+          if (lightboxZoomLabel) lightboxZoomLabel.textContent = `${Math.round(lightboxZoom * 100)}%`;
+        };
+        const resetLightboxZoom = () => {
+          lightboxZoom = 1;
+          applyLightboxZoom();
+          lightbox?.querySelector('.image-lightbox-content')?.scrollTo(0, 0);
+        };
         const closeLightbox = () => {
           if (lightbox) lightbox.hidden = true;
           spinFrames = [];
+          resetLightboxZoom();
         };
         document.querySelectorAll('.image-zoom-button, .zoomable-manual-image').forEach((control) => {
-          control.addEventListener('click', () => {
+          control.addEventListener('click', (event) => {
+            const regionStage = control.closest('.layout-region-stage');
+            if (regionStage?.classList.contains('selecting') || regionStage?.dataset.suppressZoom === 'true') {
+              if (regionStage) delete regionStage.dataset.suppressZoom;
+              return;
+            }
             const image = control.closest('figure')?.querySelector('img');
             if (!lightbox || !lightboxImage || !image) return;
             lightboxImage.src = image.src;
@@ -913,9 +995,25 @@
             if (lightboxTitle) lightboxTitle.textContent = image.alt;
             if (spinHint) spinHint.hidden = true;
             spinFrames = [];
+            resetLightboxZoom();
             lightbox.hidden = false;
           });
         });
+        lightbox?.querySelectorAll('[data-lightbox-zoom]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const action = button.dataset.lightboxZoom;
+            if (action === 'in') lightboxZoom = Math.min(4, lightboxZoom + .25);
+            if (action === 'out') lightboxZoom = Math.max(.5, lightboxZoom - .25);
+            if (action === 'reset') lightboxZoom = 1;
+            applyLightboxZoom();
+          });
+        });
+        lightbox?.addEventListener('wheel', (event) => {
+          if (lightbox.hidden) return;
+          event.preventDefault();
+          lightboxZoom = Math.max(.5, Math.min(4, lightboxZoom + (event.deltaY < 0 ? .25 : -.25)));
+          applyLightboxZoom();
+        }, { passive: false });
         document.querySelectorAll('.media-hotspot').forEach((hotspot) => {
           hotspot.addEventListener('pointerdown', (event) => event.stopPropagation());
           hotspot.addEventListener('click', async (event) => {
@@ -977,6 +1075,75 @@
             }
           });
         });
+
+        const layoutRegionStage = document.querySelector('.layout-region-stage');
+        const layoutRegionButton = document.querySelector('#start-layout-region-selection');
+        const layoutRegionBox = layoutRegionStage?.querySelector('.layout-region-selection');
+        const layoutRegionForm = document.querySelector('#layout-region-ocr-form');
+        const layoutRegionStatus = layoutRegionForm?.querySelector('.layout-region-status');
+        const layoutRegionSubmit = layoutRegionForm?.querySelector('.layout-region-submit');
+        const layoutRegionInputs = layoutRegionForm ? {
+          x: layoutRegionForm.querySelector('[name="x_percent"]'),
+          y: layoutRegionForm.querySelector('[name="y_percent"]'),
+          width: layoutRegionForm.querySelector('[name="width_percent"]'),
+          height: layoutRegionForm.querySelector('[name="height_percent"]')
+        } : null;
+        let layoutSelectionStart = null;
+        layoutRegionButton?.addEventListener('click', () => {
+          layoutRegionStage?.classList.add('selecting');
+          layoutRegionButton.textContent = '도면에서 드래그하세요';
+        });
+        layoutRegionStage?.addEventListener('pointerdown', (event) => {
+          if (!layoutRegionStage.classList.contains('selecting')) return;
+          event.preventDefault();
+          const rect = layoutRegionStage.getBoundingClientRect();
+          layoutSelectionStart = {
+            x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+            y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+            rect
+          };
+          if (layoutRegionBox) {
+            layoutRegionBox.hidden = false;
+            layoutRegionBox.style.left = `${layoutSelectionStart.x}px`;
+            layoutRegionBox.style.top = `${layoutSelectionStart.y}px`;
+            layoutRegionBox.style.width = '0';
+            layoutRegionBox.style.height = '0';
+          }
+          layoutRegionStage.setPointerCapture(event.pointerId);
+        });
+        layoutRegionStage?.addEventListener('pointermove', (event) => {
+          if (!layoutSelectionStart || !layoutRegionBox) return;
+          const x = Math.max(0, Math.min(layoutSelectionStart.rect.width, event.clientX - layoutSelectionStart.rect.left));
+          const y = Math.max(0, Math.min(layoutSelectionStart.rect.height, event.clientY - layoutSelectionStart.rect.top));
+          layoutRegionBox.style.left = `${Math.min(layoutSelectionStart.x, x)}px`;
+          layoutRegionBox.style.top = `${Math.min(layoutSelectionStart.y, y)}px`;
+          layoutRegionBox.style.width = `${Math.abs(x - layoutSelectionStart.x)}px`;
+          layoutRegionBox.style.height = `${Math.abs(y - layoutSelectionStart.y)}px`;
+        });
+        const finishLayoutSelection = () => {
+          if (!layoutSelectionStart || !layoutRegionBox || !layoutRegionInputs) return;
+          const left = parseFloat(layoutRegionBox.style.left);
+          const top = parseFloat(layoutRegionBox.style.top);
+          const width = parseFloat(layoutRegionBox.style.width);
+          const height = parseFloat(layoutRegionBox.style.height);
+          if (width < 8 || height < 8) {
+            if (layoutRegionStatus) layoutRegionStatus.textContent = '판독할 영역을 조금 더 크게 선택하세요.';
+            layoutSelectionStart = null;
+            return;
+          }
+          layoutRegionInputs.x.value = (left / layoutSelectionStart.rect.width * 100).toFixed(2);
+          layoutRegionInputs.y.value = (top / layoutSelectionStart.rect.height * 100).toFixed(2);
+          layoutRegionInputs.width.value = (width / layoutSelectionStart.rect.width * 100).toFixed(2);
+          layoutRegionInputs.height.value = (height / layoutSelectionStart.rect.height * 100).toFixed(2);
+          if (layoutRegionStatus) layoutRegionStatus.innerHTML = '<strong>영역이 지정되었습니다.</strong> 고해상도 재판독을 실행하세요.';
+          if (layoutRegionSubmit) layoutRegionSubmit.disabled = false;
+          layoutRegionStage.dataset.suppressZoom = 'true';
+          layoutRegionStage.classList.remove('selecting');
+          if (layoutRegionButton) layoutRegionButton.textContent = '영역 다시 선택';
+          layoutSelectionStart = null;
+        };
+        layoutRegionStage?.addEventListener('pointerup', finishLayoutSelection);
+        layoutRegionStage?.addEventListener('pointercancel', finishLayoutSelection);
 
         const adminStage = document.querySelector('.admin-hotspot-stage');
         const selectionButton = document.querySelector('#start-hotspot-selection');
