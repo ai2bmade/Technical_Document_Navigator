@@ -40,14 +40,22 @@ def clean_assistant_text(text: str) -> str:
     return text.strip()
 
 
-def page_action(action: str, page_text: str, filename: str, page_number: int) -> dict[str, object]:
+def page_action(
+    action: str,
+    page_text: str,
+    filename: str,
+    page_number: int,
+    language: str = "en",
+) -> dict[str, object]:
     text = compact_text(page_text, 1600)
+    language_name = ANSWER_LANGUAGE_NAMES.get(language.lower(), language)
     if not text:
         return {
             "title": "Page information unavailable",
             "answer": "No readable text is available for this page.",
             "bullets": [],
             "evidence": [],
+            "engine": "none",
         }
 
     action_guides = {
@@ -59,10 +67,11 @@ def page_action(action: str, page_text: str, filename: str, page_number: int) ->
     title, task = action_guides.get(action, ("Page Review", "Explain the important information on this page."))
     answer = ""
     bullets: list[str] = []
+    engine = "openai"
     try:
         response = generate_text(
             (
-                "You are a precise customer-facing technical manual assistant. Respond in English. "
+                f"You are a precise customer-facing technical manual assistant. Respond in {language_name}. "
                 "Use only the supplied page text. Never dump or repeat the raw text. Organize the result "
                 "for quick reading. Preserve numbers, units, model names, and safety meaning. Return JSON only."
             ),
@@ -78,6 +87,7 @@ def page_action(action: str, page_text: str, filename: str, page_number: int) ->
         answer = str(payload.get("answer") or "").strip()
         bullets = [str(item).strip() for item in payload.get("bullets", []) if str(item).strip()][:8]
     except Exception:
+        engine = "fallback"
         sentences = re.split(r"(?<=[.!?])\s+", text)
         answer = " ".join(sentences[:3]).strip()
         if action == "specs":
@@ -97,6 +107,7 @@ def page_action(action: str, page_text: str, filename: str, page_number: int) ->
         "title": title,
         "answer": answer,
         "bullets": bullets,
+        "engine": engine,
         "evidence": [
             {
                 "filename": filename,

@@ -437,7 +437,13 @@ async def manual_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except ValueError:
         await update.message.reply_text("Please use /manuals and choose with buttons.")
         return
-    await send_manual_page(update.effective_chat.id, context, manual_version_id, page_number)
+    await send_manual_page(
+        update.effective_chat.id,
+        context,
+        manual_version_id,
+        page_number,
+        str(context.user_data.get("language") or "en"),
+    )
 
 
 async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -480,8 +486,7 @@ async def product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not manuals:
         await query.message.reply_text("No language version is registered for this product.")
         return
-    telegram_language = str(update.effective_user.language_code or "en").split("-", 1)[0].lower()
-    preferred_language = str(context.user_data.get("language") or telegram_language)
+    preferred_language = str(context.user_data.get("language") or "en")
     manuals_by_language = {str(manual["language"]).lower(): manual for manual in manuals}
     selected = (
         manuals_by_language.get(preferred_language)
@@ -508,7 +513,7 @@ async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     parts = (query.data or "").split(":")
     action, manual_id_raw, page_raw = parts[:3]
-    language = parts[3] if len(parts) > 3 else str(context.user_data.get("language") or "ko")
+    language = parts[3] if len(parts) > 3 else str(context.user_data.get("language") or "en")
     manual_version_id = int(manual_id_raw)
     page_number = int(page_raw)
 
@@ -549,11 +554,13 @@ async def page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         manual_page_text(manual_version_id, page_number),
         info["display_name"],
         page_number,
+        language,
     )
     answer_parts = [str(result.get("title") or "Page Review"), str(result.get("answer") or "")]
     answer_parts.extend(f"• {item}" for item in result.get("bullets", []))
     answer = "\n\n".join(part for part in answer_parts if part)
-    if language.lower() != "en":
+    source_language = str(info["language"]).lower()
+    if result.get("engine") == "fallback" and source_language != language.lower():
         try:
             answer = translate_customer_text(answer, language)
         except OpenAIUnavailable:
@@ -573,6 +580,7 @@ async def answer_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         customer_id = str(context.user_data.get("customer_id") or "Customer")
         context.user_data.pop("login_step", None)
         context.user_data["customer_authenticated"] = True
+        context.user_data["language"] = "en"
         manuals = list_product_manuals()
         text = f"Welcome, {customer_id}. Choose a product." if manuals else "Login complete. No Preview manuals are published yet."
         await update.message.reply_text(text, reply_markup=product_keyboard() if manuals else None)
@@ -585,7 +593,7 @@ async def answer_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not source_document_id:
         await update.message.reply_text("Please use /manuals first, then choose product and language.")
         return
-    language = str(context.user_data.get("language") or "ko")
+    language = str(context.user_data.get("language") or "en")
     try:
         result = answer_question_with_ai(question, int(source_document_id), language=language)
         await update.message.reply_text(result["answer"][:3900])
