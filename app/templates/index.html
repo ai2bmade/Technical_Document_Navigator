@@ -69,14 +69,16 @@
           {% else %}
           <div class="sidebar-head">
             <h2>{% if mode == 'manual_admin' %}Manual Admin{% elif mode == 'spec' %}Spec Sheet Review{% else %}Layout Review{% endif %}</h2>
-            <p>{% if mode == 'manual_admin' %}업로드, OCR, 수정, 공개 준비{% else %}내부 검토용 PDF 작업 영역{% endif %}</p>
+            <p>{% if mode == 'manual_admin' %}소스 콘텐츠 구성, 검수, 다국어 공개{% else %}내부 검토용 PDF 작업 영역{% endif %}</p>
           </div>
           <div class="doc-list">
             {% for doc in documents %}
             <a class="doc-card {% if selected_document and doc.id == selected_document.id %}active{% endif %}" href="/?mode={{ mode }}&document_id={{ doc.id }}&page=1">
               <div class="doc-title">#{{ doc.id }} {{ doc.filename }}</div>
               <div class="doc-meta">{{ doc.page_count }} pages · {{ doc.chunk_count }} chunks</div>
-              {% if doc.chunk_count == 0 %}
+              {% if mode == 'manual_admin' %}
+              <span class="status ready">Source Package</span>
+              {% elif doc.chunk_count == 0 %}
               <span class="status needs">Needs OCR</span>
               {% else %}
               <span class="status ready">Indexed</span>
@@ -142,7 +144,9 @@
               </h1>
             </div>
             {% if mode != 'preview' and selected_document %}
-              {% if selected_document.chunk_count == 0 %}
+              {% if mode == 'manual_admin' %}
+              <span class="pill">Authoring</span>
+              {% elif selected_document.chunk_count == 0 %}
               <form action="/ocr-form" method="post">
                 <input type="hidden" name="document_id" value="{{ selected_document.id }}">
                 <input type="hidden" name="mode" value="{{ mode }}">
@@ -154,8 +158,8 @@
             {% elif mode == 'preview' and selected_manual %}
               <div class="viewer-actions">
                 <span class="pill">Customer Preview</span>
-                <a class="{% if view != 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=manual">Fit Panel</a>
-                <a class="{% if view == 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=original">Enlarge</a>
+                <a class="{% if view != 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=manual">Digital Page</a>
+                <a class="{% if view == 'original' %}active{% endif %}" href="/?mode=preview&manual_version_id={{ selected_manual.manual_version_id }}&page={{ selected_page }}&view=original">Original Source</a>
               </div>
             {% endif %}
           </div>
@@ -193,23 +197,62 @@
                   {% endif %}
                 </div>
 
-                <div class="view-switch">
-                  {% if selected_manual.source_document_id %}
-                  <a href="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" target="_blank" rel="noreferrer">Open Image</a>
-                  {% endif %}
-                </div>
-
                 <section class="manual-section">
-                  {% if selected_manual.source_document_id %}
+                  {% if view == 'original' and selected_manual.source_document_id %}
                   <figure class="page-image single-page {% if view == 'original' %}zoom-page{% endif %}">
                     <img src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
                     <figcaption>Original source page {{ selected_page }}</figcaption>
                   </figure>
-                  {% endif %}
-                  {% if view != 'original' %}
-                  <div class="ocr-text-panel customer-copy">
-                    <h2>Published Manual Text</h2>
-                    <p>{{ selected_manual_page.published_text or selected_manual_page.ai_corrected_text or selected_manual_page.raw_ocr_text or '아직 공개용 문구가 없습니다.' }}</p>
+                  {% elif view != 'original' %}
+                  <div class="digital-manual" aria-label="Digital technical manual page">
+                    {% if preview_page_blocks %}
+                      {% for block in preview_page_blocks %}
+                        {% if block.block_type == 'title' %}
+                        <h1 class="doc-title">{{ block.content }}</h1>
+                        {% elif block.block_type == 'heading' %}
+                        <h2 class="doc-heading">{{ block.content }}</h2>
+                        {% elif block.block_type == 'paragraph' %}
+                        <p class="doc-paragraph">{{ block.content }}</p>
+                        {% elif block.block_type == 'warning' or block.block_type == 'caution' %}
+                        <aside class="doc-alert {{ block.block_type }}">
+                          <strong>{{ block.block_type|upper }}</strong>
+                          <p>{{ block.content }}</p>
+                        </aside>
+                        {% elif block.block_type == 'note' %}
+                        <aside class="doc-note"><strong>NOTE</strong><p>{{ block.content }}</p></aside>
+                        {% elif block.block_type == 'table' %}
+                        <div class="doc-table-wrap">
+                          <table class="doc-table">
+                            {% for row in block.table_rows %}
+                            {% set row_index = loop.index %}
+                            <tr>
+                              {% for cell in row %}
+                                {% if row_index == 1 %}<th>{{ cell }}</th>{% else %}<td>{{ cell }}</td>{% endif %}
+                              {% endfor %}
+                            </tr>
+                            {% endfor %}
+                          </table>
+                          {% if block.caption %}<div class="doc-caption">{{ block.caption }}</div>{% endif %}
+                        </div>
+                        {% elif block.block_type == 'figure' %}
+                        <figure class="doc-figure">
+                          {% if block.asset_url %}<img src="{{ block.asset_url }}" alt="{{ block.caption or selected_manual.display_name }}">{% endif %}
+                          {% if block.caption %}<figcaption>{{ block.caption }}</figcaption>{% endif %}
+                        </figure>
+                        {% elif block.block_type == 'caption' %}
+                        <p class="doc-caption">{{ block.content }}</p>
+                        {% elif block.block_type == 'reference' %}
+                        <p class="doc-reference">{{ block.content }}</p>
+                        {% endif %}
+                      {% endfor %}
+                    {% else %}
+                    <h1 class="doc-title">{{ selected_manual.display_name }}</h1>
+                    <p class="doc-paragraph">{{ selected_manual_page.published_text or selected_manual_page.ai_corrected_text or selected_manual_page.raw_ocr_text or '아직 공개용 콘텐츠가 없습니다.' }}</p>
+                    {% endif %}
+                    <footer class="doc-page-footer">
+                      <span>{{ selected_manual.display_name }}</span>
+                      <span>{{ selected_page }}</span>
+                    </footer>
                   </div>
                   {% endif %}
                 </section>
@@ -223,13 +266,13 @@
                 <div class="manual-header">
                   <div>
                     <div class="manual-title">
-                      {% if selected_document %}Original PDF Page{% else %}Technical Document Navigator{% endif %}
+                      {% if mode == 'manual_admin' %}Digital Manual Authoring{% elif selected_document %}Original PDF Page{% else %}Technical Document Navigator{% endif %}
                     </div>
-                    <div class="manual-sub">Page image first. OCR text below. Evidence stays visible.</div>
+                    <div class="manual-sub">{% if mode == 'manual_admin' %}Structure, review, and publish source-owned technical content.{% else %}Page image first. OCR text below. Evidence stays visible.{% endif %}</div>
                   </div>
                   <div class="page-no">
                     {% if selected_document %}
-                    Page {{ selected_page }} / {{ selected_document.page_count }}<br>{{ selected_document.chunk_count }} chunks
+                    Page {{ selected_page }} / {{ selected_document.page_count }}<br>{% if mode == 'manual_admin' %}Source content{% else %}{{ selected_document.chunk_count }} chunks{% endif %}
                     {% else %}
                     MVP
                     {% endif %}
@@ -252,22 +295,94 @@
                 </div>
 
                 <section class="manual-section" id="page-{{ selected_page }}">
-                  <figure class="page-image single-page">
+                  <figure class="page-image single-page {% if mode == 'manual_admin' %}source-reference{% endif %}">
                     <img src="/documents/{{ selected_document.id }}/pages/{{ selected_page }}.png" alt="{{ selected_document.filename }} page {{ selected_page }}">
-                    <figcaption>Original PDF page {{ selected_page }}</figcaption>
+                    <figcaption>{% if mode == 'manual_admin' %}Source reference · Page {{ selected_page }}{% else %}Original PDF page {{ selected_page }}{% endif %}</figcaption>
                   </figure>
 
                   {% if mode == 'manual_admin' %}
-                  <form class="ocr-edit-form" action="/save-ocr-page-form" method="post">
-                    <h2>OCR / Extracted Text Editor</h2>
-                    <p>이 칸이 현재 페이지의 OCR 결과 원문입니다. 여기서 직접 고친 뒤 저장하면 검색용 텍스트와 Preview에 등록된 같은 페이지 문구도 함께 갱신됩니다.</p>
-                    <input type="hidden" name="document_id" value="{{ selected_document.id }}">
-                    <input type="hidden" name="page" value="{{ selected_page }}">
-                    <textarea name="corrected_text" rows="14">{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}
+                  {% if admin_manual %}
+                  <section class="content-builder">
+                    <div class="content-builder-head">
+                      <div>
+                        <span class="eyebrow">{{ admin_manual.slug }} · {{ admin_manual.language|upper }}</span>
+                        <h2>Page Content Blocks</h2>
+                        <p>The ordered blocks below are the source of truth for the customer-facing Digital Page.</p>
+                      </div>
+                      <span class="publish-state">{{ admin_manual.manual_status|replace('_', ' ')|title }}</span>
+                    </div>
+
+                    <div class="block-editor-list">
+                      {% for block in admin_page_blocks %}
+                      <form class="block-editor" action="/manual-block-update-form" method="post">
+                        <input type="hidden" name="block_id" value="{{ block.id }}">
+                        <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                        <input type="hidden" name="page" value="{{ selected_page }}">
+                        <div class="block-editor-toolbar">
+                          <span class="block-order">{{ block.reading_order }}</span>
+                          <select name="block_type">
+                            {% for type in ['title','heading','paragraph','table','figure','caption','warning','caution','note','reference'] %}
+                            <option value="{{ type }}" {% if block.block_type == type %}selected{% endif %}>{{ type|title }}</option>
+                            {% endfor %}
+                          </select>
+                          <select name="status">
+                            {% for state in ['draft','review','published'] %}
+                            <option value="{{ state }}" {% if block.status == state %}selected{% endif %}>{{ state|title }}</option>
+                            {% endfor %}
+                          </select>
+                        </div>
+                        <textarea name="content" rows="{% if block.block_type == 'paragraph' or block.block_type == 'table' %}6{% else %}3{% endif %}" placeholder="Content. For tables, separate cells with | and rows with line breaks.">{{ block.content or '' }}</textarea>
+                        <div class="block-asset-fields">
+                          <input name="asset_url" value="{{ block.asset_url or '' }}" placeholder="Image or diagram URL">
+                          <input name="caption" value="{{ block.caption or '' }}" placeholder="Caption">
+                        </div>
+                        <div class="block-editor-actions">
+                          <button type="submit">Save Block</button>
+                          <button type="submit" class="text-danger" formaction="/manual-block-delete-form" formmethod="post">Remove</button>
+                        </div>
+                      </form>
+                      {% else %}
+                      <div class="empty-builder">No structured blocks yet. Add the first source block below.</div>
+                      {% endfor %}
+                    </div>
+
+                    <form class="block-add-form" action="/manual-block-add-form" method="post">
+                      <input type="hidden" name="manual_version_id" value="{{ admin_manual.manual_version_id }}">
+                      <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                      <input type="hidden" name="page" value="{{ selected_page }}">
+                      <h3>Add Content Block</h3>
+                      <div class="block-add-grid">
+                        <select name="block_type">
+                          {% for type in ['heading','paragraph','table','figure','caption','warning','caution','note','reference'] %}
+                          <option value="{{ type }}">{{ type|title }}</option>
+                          {% endfor %}
+                        </select>
+                        <input name="asset_url" placeholder="Image or diagram URL">
+                      </div>
+                      <textarea name="content" rows="4" placeholder="Authoritative source content"></textarea>
+                      <input name="caption" placeholder="Caption or source reference">
+                      <button type="submit">Add Block</button>
+                    </form>
+                  </section>
+                  {% else %}
+                  <div class="authoring-gate">
+                    <h2>Register the manual before authoring</h2>
+                    <p>Use the Manual Admin Tools panel to assign this source package to a product and language. The structured page editor will then become available.</p>
+                  </div>
+                  {% endif %}
+
+                  <details class="source-import-details">
+                    <summary>Fallback text import / OCR recovery</summary>
+                    <form class="ocr-edit-form" action="/save-ocr-page-form" method="post">
+                      <p>Use this only when authoritative source text is unavailable. It is not the customer-facing page editor.</p>
+                      <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+                      <input type="hidden" name="page" value="{{ selected_page }}">
+                      <textarea name="corrected_text" rows="10">{% for chunk in page_chunks %}{{ chunk.content }}{% if not loop.last %}
 
 {% endif %}{% endfor %}</textarea>
-                    <button type="submit">Save Corrected Text</button>
-                  </form>
+                      <button type="submit">Update Fallback Text</button>
+                    </form>
+                  </details>
                   {% else %}
                   <div class="ocr-text-panel">
                     <h2>OCR / Extracted Text</h2>
@@ -300,9 +415,9 @@
             <p>{% if mode == 'preview' %}고객이 볼 매뉴얼 페이지 기준으로 질문합니다.{% elif mode == 'manual_admin' %}업로드 PDF를 제품군 매뉴얼로 등록하거나 정리합니다.{% else %}Ask about the selected document. Answers include evidence pages when available.{% endif %}</p>
           </div>
 
-          {% if mode == 'manual_admin' and selected_document and selected_document.chunk_count > 0 %}
+          {% if mode == 'manual_admin' and selected_document %}
           <form class="admin-form" action="/product-manual-form" method="post">
-            <h3>Register Product Manual</h3>
+            <h3>Product Identity & Publishing</h3>
             <input type="hidden" name="document_id" value="{{ selected_document.id }}">
             <label>
               Product slug
@@ -328,7 +443,7 @@
                 <option value="ja">日本語</option>
               </select>
             </label>
-            <button type="submit">Add to Preview</button>
+            <button type="submit">Create Digital Manual</button>
           </form>
           {% endif %}
 

@@ -92,6 +92,21 @@ create table if not exists manual_page_translations (
   unique(manual_page_id, language)
 );
 
+create table if not exists manual_page_blocks (
+  id integer primary key autoincrement,
+  manual_version_id integer not null references manual_versions(id) on delete cascade,
+  page_number integer not null,
+  block_type text not null,
+  reading_order integer not null,
+  content text,
+  asset_url text,
+  caption text,
+  metadata_json text,
+  status text not null default 'draft',
+  updated_at text not null default current_timestamp,
+  unique(manual_version_id, page_number, reading_order)
+);
+
 create table if not exists manual_page_summaries (
   id integer primary key autoincrement,
   document_id integer not null references documents(id) on delete cascade,
@@ -187,3 +202,24 @@ def init_db() -> None:
             conn.execute(
                 "alter table documents add column workspace text not null default 'manual'"
             )
+        conn.execute(
+            """
+            insert into manual_page_blocks(
+              manual_version_id, page_number, block_type, reading_order, content, status
+            )
+            select
+              mp.manual_version_id,
+              mp.page_number,
+              'paragraph',
+              1,
+              coalesce(mp.published_text, mp.ai_corrected_text, mp.raw_ocr_text, ''),
+              case when mp.status like 'published%' then 'published' else 'draft' end
+            from manual_pages mp
+            where coalesce(mp.published_text, mp.ai_corrected_text, mp.raw_ocr_text, '') <> ''
+              and not exists (
+                select 1 from manual_page_blocks mb
+                where mb.manual_version_id = mp.manual_version_id
+                  and mb.page_number = mp.page_number
+              )
+            """
+        )

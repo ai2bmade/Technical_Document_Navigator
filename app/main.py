@@ -23,12 +23,16 @@ from app.copilot import (
 )
 from app.knowledge_pipeline import build_manual_knowledge
 from app.manual_pipeline import (
+    add_manual_page_block,
     check_translation_accuracy,
     create_manual_version_from_document,
     create_reviewed_translation_version,
+    delete_manual_page_block,
     generate_translation_draft,
+    list_manual_page_blocks,
     list_product_manuals,
     native_review_translation,
+    update_manual_page_block,
 )
 from app.openai_service import OpenAIUnavailable
 from app.ocr import run_ocr_for_document
@@ -248,6 +252,7 @@ def load_workspace(
         product_manuals = list_product_manuals()
         selected_manual = None
         selected_manual_page = None
+        admin_manual = None
         if selected_document:
             selected_page = max(1, min(page, selected_document["page_count"]))
             if selected_page > 1:
@@ -273,6 +278,25 @@ def load_workspace(
                 """,
                 (selected_document["id"], selected_page),
             ).fetchall()
+            if mode == "manual_admin":
+                admin_manual = conn.execute(
+                    """
+                    select
+                      mv.id as manual_version_id,
+                      mv.language,
+                      mv.title,
+                      mv.status as manual_status,
+                      mv.source_document_id,
+                      pf.slug,
+                      pf.display_name
+                    from manual_versions mv
+                    join product_families pf on pf.id = mv.product_family_id
+                    where mv.source_document_id = ?
+                    order by case when mv.language = 'ko' then 0 else 1 end, mv.id
+                    limit 1
+                    """,
+                    (selected_document["id"],),
+                ).fetchone()
         if mode == "preview" and product_manuals:
             selected_manual_version_id = manual_version_id or int(product_manuals[0]["manual_version_id"])
             selected_manual = conn.execute(
@@ -314,6 +338,16 @@ def load_workspace(
                     """,
                     (selected_manual_version_id, selected_page),
                 ).fetchone()
+    admin_page_blocks = (
+        list_manual_page_blocks(int(admin_manual["manual_version_id"]), selected_page)
+        if admin_manual
+        else []
+    )
+    preview_page_blocks = (
+        list_manual_page_blocks(int(selected_manual["manual_version_id"]), selected_page)
+        if selected_manual
+        else []
+    )
     return {
         "mode": mode,
         "view": view if view in {"manual", "original"} else "manual",
@@ -327,6 +361,9 @@ def load_workspace(
         "product_manuals": product_manuals,
         "selected_manual": selected_manual,
         "selected_manual_page": selected_manual_page,
+        "admin_manual": admin_manual,
+        "admin_page_blocks": admin_page_blocks,
+        "preview_page_blocks": preview_page_blocks,
         "knowledge_run": latest_knowledge_run(
             selected_document["id"] if selected_document else (
                 selected_manual["source_document_id"] if selected_manual else None
@@ -505,6 +542,89 @@ def save_ocr_page_form(
             "request": request,
             "app_name": settings.app_name,
             "upload_message": f"Saved OCR text for page {page}.",
+            **workspace,
+        },
+    )
+
+
+@app.post("/manual-block-add-form", response_class=HTMLResponse)
+def manual_block_add_form(
+    request: Request,
+    manual_version_id: int = Form(...),
+    document_id: int = Form(...),
+    page: int = Form(1),
+    block_type: str = Form(...),
+    content: str = Form(""),
+    asset_url: str = Form(""),
+    caption: str = Form(""),
+) -> HTMLResponse:
+    add_manual_page_block(
+        manual_version_id,
+        page,
+        block_type,
+        content=content,
+        asset_url=asset_url,
+        caption=caption,
+    )
+    workspace = load_workspace(document_id, page, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "Content block added.",
+            **workspace,
+        },
+    )
+
+
+@app.post("/manual-block-update-form", response_class=HTMLResponse)
+def manual_block_update_form(
+    request: Request,
+    block_id: int = Form(...),
+    document_id: int = Form(...),
+    page: int = Form(1),
+    block_type: str = Form(...),
+    content: str = Form(""),
+    asset_url: str = Form(""),
+    caption: str = Form(""),
+    status: str = Form("draft"),
+) -> HTMLResponse:
+    update_manual_page_block(
+        block_id,
+        block_type,
+        content,
+        asset_url,
+        caption,
+        status,
+    )
+    workspace = load_workspace(document_id, page, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "Content block saved.",
+            **workspace,
+        },
+    )
+
+
+@app.post("/manual-block-delete-form", response_class=HTMLResponse)
+def manual_block_delete_form(
+    request: Request,
+    block_id: int = Form(...),
+    document_id: int = Form(...),
+    page: int = Form(1),
+) -> HTMLResponse:
+    delete_manual_page_block(block_id)
+    workspace = load_workspace(document_id, page, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "Content block removed.",
             **workspace,
         },
     )

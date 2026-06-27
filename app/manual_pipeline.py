@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
+import sqlite3
+
 from app.openai_service import generate_text
 from app.storage import db
 
@@ -17,6 +21,165 @@ LANGUAGE_NAMES = {
     "zh": "Chinese",
     "ja": "Japanese",
 }
+
+MANUAL_BLOCK_TYPES = {
+    "title",
+    "heading",
+    "paragraph",
+    "table",
+    "figure",
+    "caption",
+    "warning",
+    "caution",
+    "note",
+    "reference",
+}
+
+
+def _seed_blocks_from_text(
+    conn,
+    manual_version_id: int,
+    page_number: int,
+    text: str,
+) -> None:
+    existing = conn.execute(
+        """
+        select count(*) from manual_page_blocks
+        where manual_version_id = ? and page_number = ?
+        """,
+        (manual_version_id, page_number),
+    ).fetchone()[0]
+    if existing or not text.strip():
+        return
+
+    parts = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    if not parts:
+        return
+    for index, part in enumerate(parts, start=1):
+        block_type = "paragraph"
+        if index == 1 and len(part) <= 120:
+            block_type = "title"
+        elif len(part) <= 100 and "\n" not in part:
+            block_type = "heading"
+        elif any(word in part.lower() for word in ["warning", "caution", "경고", "주의"]):
+            block_type = "warning"
+        conn.execute(
+            """
+            insert into manual_page_blocks(
+              manual_version_id, page_number, block_type, reading_order, content, status
+            )
+            values (?, ?, ?, ?, ?, 'draft')
+            """,
+            (manual_version_id, page_number, block_type, index, part),
+        )
+
+
+def list_manual_page_blocks(manual_version_id: int, page_number: int) -> list[dict[str, object]]:
+    with db() as conn:
+        try:
+            rows = conn.execute(
+                """
+                select * from manual_page_blocks
+                where manual_version_id = ? and page_number = ?
+                order by reading_order, id
+                """,
+                (manual_version_id, page_number),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    blocks: list[dict[str, object]] = []
+    for row in rows:
+        item = dict(row)
+        if item["block_type"] == "table":
+            item["table_rows"] = [
+                [cell.strip() for cell in line.split("|")]
+                for line in (item.get("content") or "").splitlines()
+                if line.strip()
+            ]
+        else:
+            item["table_rows"] = []
+        try:
+            item["metadata"] = json.loads(item.get("metadata_json") or "{}")
+        except json.JSONDecodeError:
+            item["metadata"] = {}
+        blocks.append(item)
+    return blocks
+
+
+def add_manual_page_block(
+    manual_version_id: int,
+    page_number: int,
+    block_type: str,
+    content: str = "",
+    asset_url: str = "",
+    caption: str = "",
+) -> int:
+    if block_type not in MANUAL_BLOCK_TYPES:
+        raise ValueError("Unsupported manual block type.")
+    with db() as conn:
+        reading_order = conn.execute(
+            """
+            select coalesce(max(reading_order), 0) + 1
+            from manual_page_blocks
+            where manual_version_id = ? and page_number = ?
+            """,
+            (manual_version_id, page_number),
+        ).fetchone()[0]
+        cur = conn.execute(
+            """
+            insert into manual_page_blocks(
+              manual_version_id, page_number, block_type, reading_order,
+              content, asset_url, caption, status
+            )
+            values (?, ?, ?, ?, ?, ?, ?, 'draft')
+            """,
+            (
+                manual_version_id,
+                page_number,
+                block_type,
+                reading_order,
+                content.strip(),
+                asset_url.strip(),
+                caption.strip(),
+            ),
+        )
+    return int(cur.lastrowid)
+
+
+def update_manual_page_block(
+    block_id: int,
+    block_type: str,
+    content: str,
+    asset_url: str,
+    caption: str,
+    status: str,
+) -> None:
+    if block_type not in MANUAL_BLOCK_TYPES:
+        raise ValueError("Unsupported manual block type.")
+    if status not in {"draft", "review", "published"}:
+        status = "draft"
+    with db() as conn:
+        conn.execute(
+            """
+            update manual_page_blocks
+            set block_type = ?, content = ?, asset_url = ?, caption = ?,
+                status = ?, updated_at = current_timestamp
+            where id = ?
+            """,
+            (
+                block_type,
+                content.strip(),
+                asset_url.strip(),
+                caption.strip(),
+                status,
+                block_id,
+            ),
+        )
+
+
+def delete_manual_page_block(block_id: int) -> None:
+    with db() as conn:
+        conn.execute("delete from manual_page_blocks where id = ?", (block_id,))
 
 
 def upsert_product_family(
@@ -104,6 +267,7 @@ def create_manual_version_from_document(
                 """,
                 (version_id, page_number, raw_text, raw_text, "ocr_done" if raw_text else "raw"),
             )
+            _seed_blocks_from_text(conn, version_id, page_number, raw_text)
     return version_id
 
 
@@ -412,6 +576,12 @@ def create_reviewed_translation_version(
                     final,
                     "published_translation",
                 ),
+            )
+            _seed_blocks_from_text(
+                conn,
+                target_manual_version_id,
+                int(page["page_number"]),
+                final,
             )
         pages_processed += 1
 
