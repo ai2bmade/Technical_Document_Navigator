@@ -107,6 +107,19 @@ create table if not exists manual_page_blocks (
   unique(manual_version_id, page_number, reading_order)
 );
 
+create table if not exists document_page_corrections (
+  id integer primary key autoincrement,
+  document_id integer not null references documents(id) on delete cascade,
+  page_number integer not null,
+  raw_text text not null,
+  corrected_text text not null,
+  correction_notes text,
+  uncertain_items text,
+  confidence text,
+  updated_at text not null default current_timestamp,
+  unique(document_id, page_number)
+);
+
 create table if not exists manual_page_summaries (
   id integer primary key autoincrement,
   document_id integer not null references documents(id) on delete cascade,

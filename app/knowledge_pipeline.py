@@ -6,6 +6,7 @@ import sqlite3
 from typing import Any
 
 from app.openai_service import generate_text
+from app.pdf_ingest import split_chunks
 from app.storage import db
 
 
@@ -134,6 +135,92 @@ def _loads_json_object(text: str) -> dict[str, Any]:
         if not match:
             raise
         return json.loads(match.group(0))
+
+
+def correct_document_pages(document_id: int) -> dict[str, Any]:
+    pages = page_texts(document_id)
+    corrected_pages = 0
+    uncertain_count = 0
+    errors: list[str] = []
+    for page in pages:
+        raw_text = page["content"].strip()
+        if not raw_text:
+            continue
+        try:
+            response = generate_text(
+                (
+                    "You are a meticulous technical-document OCR correction editor. "
+                    "Keep the source language unchanged. Correct only highly probable OCR errors using context. "
+                    "Preserve model numbers, part numbers, measurements, units, warning labels, and procedure order. "
+                    "Never guess an ambiguous number or technical identifier; keep it and mark [CHECK]. "
+                    "Do not summarize, translate, or rewrite the author's meaning. Return valid JSON only."
+                ),
+                (
+                    f"Document ID: {document_id}\nPage: {page['page_number']}\n\n"
+                    "JSON schema:\n"
+                    "{\n"
+                    '  "corrected_text": "faithful corrected text",\n'
+                    '  "correction_notes": ["important corrections"],\n'
+                    '  "uncertain_items": ["items requiring human verification"],\n'
+                    '  "confidence": "high|medium|low"\n'
+                    "}\n\n"
+                    f"Raw extracted text:\n{raw_text[:12000]}"
+                ),
+            )
+            payload = _loads_json_object(response)
+            corrected_text = str(payload.get("corrected_text") or raw_text).strip()
+            uncertain_items = payload.get("uncertain_items") or []
+            with db() as conn:
+                conn.execute(
+                    """
+                    insert into document_page_corrections(
+                      document_id, page_number, raw_text, corrected_text,
+                      correction_notes, uncertain_items, confidence
+                    )
+                    values (?, ?, ?, ?, ?, ?, ?)
+                    on conflict(document_id, page_number) do update set
+                      corrected_text = excluded.corrected_text,
+                      correction_notes = excluded.correction_notes,
+                      uncertain_items = excluded.uncertain_items,
+                      confidence = excluded.confidence,
+                      updated_at = current_timestamp
+                    """,
+                    (
+                        document_id,
+                        page["page_number"],
+                        raw_text,
+                        corrected_text,
+                        json.dumps(payload.get("correction_notes") or [], ensure_ascii=False),
+                        json.dumps(uncertain_items, ensure_ascii=False),
+                        payload.get("confidence") or "medium",
+                    ),
+                )
+                conn.execute(
+                    "delete from chunks where document_id = ? and page_number = ?",
+                    (document_id, page["page_number"]),
+                )
+                rows = [
+                    (document_id, chunk.page_number, chunk.section_title, chunk.content)
+                    for chunk in split_chunks(corrected_text, int(page["page_number"]))
+                ]
+                conn.executemany(
+                    """
+                    insert into chunks(document_id, page_number, section_title, content)
+                    values (?, ?, ?, ?)
+                    """,
+                    rows,
+                )
+            corrected_pages += 1
+            uncertain_count += len(uncertain_items)
+        except Exception as exc:
+            errors.append(f"p.{page['page_number']}: {exc}")
+    return {
+        "document_id": document_id,
+        "status": "completed" if not errors else "partial",
+        "corrected_pages": corrected_pages,
+        "uncertain_items": uncertain_count,
+        "errors": errors[:5],
+    }
 
 
 def analyze_manual_page(document_id: int, page_number: int, text: str) -> dict[str, Any]:

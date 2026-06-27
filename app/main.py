@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 import subprocess
@@ -21,7 +22,7 @@ from app.copilot import (
     review_layout,
     translation_workflow,
 )
-from app.knowledge_pipeline import build_manual_knowledge
+from app.knowledge_pipeline import build_manual_knowledge, correct_document_pages
 from app.manual_pipeline import (
     add_manual_page_block,
     check_translation_accuracy,
@@ -32,6 +33,7 @@ from app.manual_pipeline import (
     list_manual_page_blocks,
     list_product_manuals,
     native_review_translation,
+    sync_manual_versions_from_document,
     update_manual_page_block,
 )
 from app.openai_service import OpenAIUnavailable
@@ -109,6 +111,30 @@ def build_manual_knowledge_safely(document_id: int) -> dict[str, object]:
         return {"document_id": document_id, "status": "failed", "message": str(exc)}
 
 
+def process_manual_document_safely(document_id: int) -> dict[str, object]:
+    try:
+        correction = correct_document_pages(document_id)
+        synced_pages = sync_manual_versions_from_document(document_id)
+        knowledge = build_manual_knowledge(document_id)
+        return {
+            "document_id": document_id,
+            "status": "completed",
+            "correction": correction,
+            "synced_pages": synced_pages,
+            "knowledge": knowledge,
+        }
+    except Exception as exc:
+        with db() as conn:
+            conn.execute(
+                """
+                insert into manual_knowledge_runs(document_id, status, message)
+                values (?, ?, ?)
+                """,
+                (document_id, "failed", str(exc)),
+            )
+        return {"document_id": document_id, "status": "failed", "message": str(exc)}
+
+
 def create_english_version_safely(manual_version_id: int) -> dict[str, object]:
     try:
         return create_reviewed_translation_version(manual_version_id, target_language="en")
@@ -134,6 +160,23 @@ def workspace_for_mode(mode: str) -> str:
     if mode == "layout":
         return "layout"
     return "manual"
+
+
+def suggest_product_identity(filename: str) -> tuple[str, str]:
+    stem = Path(filename).stem
+    words = [word for word in re.split(r"[_\-\s]+", stem) if word]
+    useful = [
+        word
+        for word in words
+        if not re.fullmatch(r"sample\d*", word, flags=re.IGNORECASE)
+        and not re.fullmatch(r"\d+pages?", word, flags=re.IGNORECASE)
+        and word.lower() not in {"manual", "user", "operation", "owners"}
+    ]
+    if not useful:
+        useful = words or ["product"]
+    display_name = " ".join(useful)
+    slug = re.sub(r"[^a-z0-9]+", "-", display_name.lower()).strip("-") or "product"
+    return slug, display_name
 
 
 def save_analysis_report(document_id: int, report_type: str, result: dict[str, object]) -> None:
@@ -348,6 +391,15 @@ def load_workspace(
         if selected_manual
         else []
     )
+    suggested_product_slug = ""
+    suggested_display_name = ""
+    if selected_document:
+        suggested_product_slug, suggested_display_name = suggest_product_identity(
+            selected_document["filename"]
+        )
+    if admin_manual:
+        suggested_product_slug = admin_manual["slug"]
+        suggested_display_name = admin_manual["display_name"]
     return {
         "mode": mode,
         "view": view if view in {"manual", "original"} else "manual",
@@ -364,6 +416,8 @@ def load_workspace(
         "admin_manual": admin_manual,
         "admin_page_blocks": admin_page_blocks,
         "preview_page_blocks": preview_page_blocks,
+        "suggested_product_slug": suggested_product_slug,
+        "suggested_display_name": suggested_display_name,
         "knowledge_run": latest_knowledge_run(
             selected_document["id"] if selected_document else (
                 selected_manual["source_document_id"] if selected_manual else None
@@ -534,7 +588,7 @@ def save_ocr_page_form(
             """,
             (text, text, text, page, document_id),
         )
-    background_tasks.add_task(build_manual_knowledge_safely, document_id)
+    background_tasks.add_task(process_manual_document_safely, document_id)
     workspace = load_workspace(document_id, page, mode="manual_admin")
     return templates.TemplateResponse(
         "index.html",
@@ -649,6 +703,7 @@ def product_manual_form(
         manufacturer=manufacturer.strip() if manufacturer else None,
         model_group=model_group.strip() if model_group else None,
     )
+    background_tasks.add_task(process_manual_document_safely, document_id)
     if (language.strip() or "ko").lower() != "en":
         background_tasks.add_task(create_english_version_safely, manual_version_id)
     workspace = load_workspace(
@@ -695,6 +750,26 @@ def delete_document_form(request: Request, document_id: int = Form(...)) -> HTML
     )
 
 
+@app.post("/delete-product-family-form", response_class=HTMLResponse)
+def delete_product_family_form(
+    request: Request,
+    product_family_id: int = Form(...),
+    document_id: int | None = Form(None),
+) -> HTMLResponse:
+    with db() as conn:
+        conn.execute("delete from product_families where id = ?", (product_family_id,))
+    workspace = load_workspace(document_id, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "Product family removed.",
+            **workspace,
+        },
+    )
+
+
 @app.post("/api/documents/{document_id}/ocr")
 def ocr_document(
     document_id: int,
@@ -707,7 +782,7 @@ def ocr_document(
             replace_existing=payload.replace_existing if payload else False,
         )
         if result.get("chunks_added", 0) or result.get("status") == "ocr_completed":
-            background_tasks.add_task(build_manual_knowledge_safely, document_id)
+            background_tasks.add_task(process_manual_document_safely, document_id)
         return result
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -733,6 +808,7 @@ def product_manual_from_document(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    background_tasks.add_task(process_manual_document_safely, payload.document_id)
     if payload.language.lower() != "en":
         background_tasks.add_task(create_english_version_safely, manual_version_id)
     return {
@@ -978,7 +1054,7 @@ def ocr_form(
 ) -> HTMLResponse:
     result = run_ocr_for_document(document_id)
     if result.get("chunks_added", 0) or result.get("status") == "ocr_completed":
-        background_tasks.add_task(build_manual_knowledge_safely, document_id)
+        background_tasks.add_task(process_manual_document_safely, document_id)
     workspace = load_workspace(document_id, mode=mode)
     return templates.TemplateResponse(
         "index.html",
@@ -986,6 +1062,25 @@ def ocr_form(
             "request": request,
             "app_name": settings.app_name,
             "ocr_result": result,
+            **workspace,
+        },
+    )
+
+
+@app.post("/process-document-form", response_class=HTMLResponse)
+def process_document_form(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    document_id: int = Form(...),
+) -> HTMLResponse:
+    background_tasks.add_task(process_manual_document_safely, document_id)
+    workspace = load_workspace(document_id, mode="manual_admin")
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "app_name": settings.app_name,
+            "upload_message": "AI source correction and knowledge preparation queued.",
             **workspace,
         },
     )

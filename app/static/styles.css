@@ -121,7 +121,7 @@ button {
   display: grid;
   flex: 1;
   gap: 18px;
-  grid-template-columns: 280px minmax(520px, 1fr) 360px;
+  grid-template-columns: 280px minmax(520px, 1fr) var(--assistant-width, 360px);
   min-height: 0;
   padding: 18px;
 }
@@ -144,6 +144,89 @@ button {
 .viewer {
   display: flex;
   flex-direction: column;
+}
+
+.assistant {
+  position: relative;
+}
+
+.assistant-resize-handle {
+  background: transparent;
+  border: 0;
+  cursor: col-resize;
+  height: 100%;
+  left: 0;
+  padding: 0;
+  position: absolute;
+  top: 0;
+  width: 10px;
+  z-index: 5;
+}
+
+.assistant-resize-handle::after {
+  background: #cbd5e1;
+  border-radius: 2px;
+  content: "";
+  height: 48px;
+  left: 3px;
+  opacity: 0;
+  position: absolute;
+  top: calc(50% - 24px);
+  transition: opacity 160ms ease;
+  width: 3px;
+}
+
+.assistant-resize-handle:hover::after,
+.assistant-resize-handle:focus-visible::after {
+  opacity: 1;
+}
+
+.source-preparation {
+  border-bottom: 1px solid #e5e7eb;
+  padding: 16px;
+}
+
+.source-preparation h3 {
+  font-size: 13px;
+  margin: 0 0 7px;
+}
+
+.source-preparation p,
+.form-help {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.source-preparation button {
+  background: #0f172a;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.product-manual-row {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.product-manual-row form button {
+  background: transparent;
+  border: 0;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 8px 10px;
+}
+
+.product-manual-row form button:hover {
+  color: #b91c1c;
 }
 
 .sidebar-head,
@@ -839,6 +922,10 @@ button.pill {
   .assistant {
     grid-column: 1 / -1;
     min-height: 420px;
+  }
+
+  .assistant-resize-handle {
+    display: none;
   }
 }
 

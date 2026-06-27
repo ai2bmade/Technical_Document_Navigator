@@ -92,10 +92,17 @@
           <div class="toc product-list">
             <h3>Product Manuals</h3>
             {% for manual in product_manuals %}
+            <div class="product-manual-row">
             <a class="toc-item" href="/?mode=preview&manual_version_id={{ manual.manual_version_id }}&page=1">
               <span class="num">{{ manual.language|upper }}</span>
               <span>{{ manual.display_name }}</span>
             </a>
+            <form action="/delete-product-family-form" method="post">
+              <input type="hidden" name="product_family_id" value="{{ manual.product_family_id }}">
+              {% if selected_document %}<input type="hidden" name="document_id" value="{{ selected_document.id }}">{% endif %}
+              <button type="submit" title="Remove product family" aria-label="Remove {{ manual.display_name }}">×</button>
+            </form>
+            </div>
             {% else %}
             <div class="empty small">제품군으로 등록된 매뉴얼이 아직 없습니다.</div>
             {% endfor %}
@@ -410,22 +417,42 @@
         </section>
 
         <aside class="panel assistant">
+          <button class="assistant-resize-handle" type="button" aria-label="Resize tools panel" title="Drag to resize"></button>
           <div class="assistant-head">
             <h2>{% if mode == 'preview' %}Customer Assistant{% elif mode == 'manual_admin' %}Manual Admin Tools{% else %}AI Technical Assistant{% endif %}</h2>
             <p>{% if mode == 'preview' %}고객이 볼 매뉴얼 페이지 기준으로 질문합니다.{% elif mode == 'manual_admin' %}업로드 PDF를 제품군 매뉴얼로 등록하거나 정리합니다.{% else %}Ask about the selected document. Answers include evidence pages when available.{% endif %}</p>
           </div>
 
           {% if mode == 'manual_admin' and selected_document %}
-          <form class="admin-form" action="/product-manual-form" method="post">
+          <section class="source-preparation">
+            <h3>Source Text & AI Preparation</h3>
+            {% if selected_document.chunk_count == 0 %}
+            <p>텍스트가 없는 PDF입니다. OCR 후 AI가 오탈자를 교정하고 용어, FAQ, 예상 답변을 준비합니다.</p>
+            <form action="/ocr-form" method="post">
+              <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+              <input type="hidden" name="mode" value="manual_admin">
+              <button type="submit">Run OCR & AI Preparation</button>
+            </form>
+            {% else %}
+            <p>{{ selected_document.chunk_count }}개 텍스트 청크가 있습니다. AI 교정 및 고객 질의응답 지식을 다시 준비할 수 있습니다.</p>
+            <form action="/process-document-form" method="post">
+              <input type="hidden" name="document_id" value="{{ selected_document.id }}">
+              <button type="submit">Rebuild AI Source & Knowledge</button>
+            </form>
+            {% endif %}
+          </section>
+
+          <form class="admin-form" action="/product-manual-form" method="post" autocomplete="off">
             <h3>Product Identity & Publishing</h3>
+            <p class="form-help">업로드 파일은 내부 소스입니다. 아래 정보를 확인하고 생성해야 Preview에 고객용 매뉴얼이 나타납니다.</p>
             <input type="hidden" name="document_id" value="{{ selected_document.id }}">
             <label>
               Product slug
-              <input name="product_slug" placeholder="zdx-u60" required>
+              <input name="product_slug" value="{{ suggested_product_slug }}" autocomplete="off" required>
             </label>
             <label>
               Display name
-              <input name="display_name" placeholder="ZDX-U60 Smart Door Lock" required>
+              <input name="display_name" value="{{ suggested_display_name }}" autocomplete="off" required>
             </label>
             <label>
               Language
@@ -708,5 +735,39 @@
         </aside>
       </main>
     </div>
+    <script>
+      (() => {
+        const handle = document.querySelector('.assistant-resize-handle');
+        const assistant = document.querySelector('.assistant');
+        if (!handle || !assistant) return;
+
+        const savedWidth = Number(localStorage.getItem('manualAssistantWidth'));
+        if (savedWidth >= 300 && savedWidth <= 640) {
+          document.documentElement.style.setProperty('--assistant-width', `${savedWidth}px`);
+        }
+
+        handle.addEventListener('pointerdown', (event) => {
+          if (window.innerWidth <= 1120) return;
+          event.preventDefault();
+          handle.setPointerCapture(event.pointerId);
+          const startX = event.clientX;
+          const startWidth = assistant.getBoundingClientRect().width;
+
+          const resize = (moveEvent) => {
+            const width = Math.max(300, Math.min(640, startWidth + startX - moveEvent.clientX));
+            document.documentElement.style.setProperty('--assistant-width', `${width}px`);
+            localStorage.setItem('manualAssistantWidth', String(Math.round(width)));
+          };
+          const finish = () => {
+            handle.removeEventListener('pointermove', resize);
+            handle.removeEventListener('pointerup', finish);
+            handle.removeEventListener('pointercancel', finish);
+          };
+          handle.addEventListener('pointermove', resize);
+          handle.addEventListener('pointerup', finish);
+          handle.addEventListener('pointercancel', finish);
+        });
+      })();
+    </script>
   </body>
 </html>

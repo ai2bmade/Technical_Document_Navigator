@@ -271,6 +271,63 @@ def create_manual_version_from_document(
     return version_id
 
 
+def sync_manual_versions_from_document(document_id: int) -> int:
+    with db() as conn:
+        versions = conn.execute(
+            """
+            select id from manual_versions
+            where source_document_id = ?
+            """,
+            (document_id,),
+        ).fetchall()
+        document = conn.execute(
+            "select page_count from documents where id = ?",
+            (document_id,),
+        ).fetchone()
+        if document is None:
+            raise ValueError("Document was not found.")
+
+        synced = 0
+        for version in versions:
+            version_id = int(version["id"])
+            for page_number in range(1, int(document["page_count"]) + 1):
+                rows = conn.execute(
+                    """
+                    select content from chunks
+                    where document_id = ? and page_number = ?
+                    order by id
+                    """,
+                    (document_id, page_number),
+                ).fetchall()
+                source_text = "\n\n".join(row["content"] for row in rows).strip()
+                if not source_text:
+                    continue
+                conn.execute(
+                    """
+                    insert into manual_pages(
+                      manual_version_id, page_number, raw_ocr_text,
+                      ai_corrected_text, published_text, status
+                    )
+                    values (?, ?, ?, ?, ?, 'ocr_done')
+                    on conflict(manual_version_id, page_number) do update set
+                      raw_ocr_text = excluded.raw_ocr_text,
+                      ai_corrected_text = case
+                        when manual_pages.status in ('raw', 'ocr_done') then excluded.ai_corrected_text
+                        else manual_pages.ai_corrected_text
+                      end,
+                      published_text = case
+                        when coalesce(manual_pages.published_text, '') = '' then excluded.published_text
+                        else manual_pages.published_text
+                      end,
+                      updated_at = current_timestamp
+                    """,
+                    (version_id, page_number, source_text, source_text, source_text),
+                )
+                _seed_blocks_from_text(conn, version_id, page_number, source_text)
+                synced += 1
+    return synced
+
+
 def get_manual_page(manual_version_id: int, page_number: int) -> dict[str, object]:
     with db() as conn:
         row = conn.execute(
