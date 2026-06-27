@@ -296,6 +296,7 @@ def load_workspace(
         selected_manual = None
         selected_manual_page = None
         admin_manual = None
+        selected_page_correction = None
         if selected_document:
             selected_page = max(1, min(page, selected_document["page_count"]))
             if selected_page > 1:
@@ -321,6 +322,26 @@ def load_workspace(
                 """,
                 (selected_document["id"], selected_page),
             ).fetchall()
+            try:
+                correction_row = conn.execute(
+                    """
+                    select corrected_text, correction_notes, uncertain_items, confidence, updated_at
+                    from document_page_corrections
+                    where document_id = ? and page_number = ?
+                    """,
+                    (selected_document["id"], selected_page),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                correction_row = None
+            if correction_row:
+                selected_page_correction = dict(correction_row)
+                for field in ("correction_notes", "uncertain_items"):
+                    try:
+                        selected_page_correction[field] = json.loads(
+                            selected_page_correction[field] or "[]"
+                        )
+                    except json.JSONDecodeError:
+                        selected_page_correction[field] = []
             if mode == "manual_admin":
                 admin_manual = conn.execute(
                     """
@@ -413,6 +434,7 @@ def load_workspace(
         "product_manuals": product_manuals,
         "selected_manual": selected_manual,
         "selected_manual_page": selected_manual_page,
+        "selected_page_correction": selected_page_correction,
         "admin_manual": admin_manual,
         "admin_page_blocks": admin_page_blocks,
         "preview_page_blocks": preview_page_blocks,
@@ -757,6 +779,10 @@ def delete_product_family_form(
     document_id: int | None = Form(None),
 ) -> HTMLResponse:
     with db() as conn:
+        product = conn.execute(
+            "select display_name from product_families where id = ?",
+            (product_family_id,),
+        ).fetchone()
         conn.execute("delete from product_families where id = ?", (product_family_id,))
     workspace = load_workspace(document_id, mode="manual_admin")
     return templates.TemplateResponse(
@@ -764,7 +790,11 @@ def delete_product_family_form(
         {
             "request": request,
             "app_name": settings.app_name,
-            "upload_message": "Product family removed.",
+            "upload_message": (
+                f"Removed {product['display_name']} from Preview."
+                if product
+                else "The product manual was already removed."
+            ),
             **workspace,
         },
     )
