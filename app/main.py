@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sqlite3
 from pathlib import Path
 import subprocess
@@ -883,6 +884,121 @@ async def manual_media_upload_form(
             **workspace,
         },
     )
+
+
+def safe_chunk_upload_dir(upload_id: str) -> Path:
+    if not re.fullmatch(r"[a-f0-9]{32}", upload_id):
+        raise HTTPException(status_code=400, detail="Invalid upload ID.")
+    chunk_root = (settings.manual_media_dir / ".chunks").resolve()
+    upload_dir = (chunk_root / upload_id).resolve()
+    if upload_dir.parent != chunk_root:
+        raise HTTPException(status_code=400, detail="Invalid upload path.")
+    return upload_dir
+
+
+@app.post("/api/manual-media/chunk")
+async def upload_manual_media_chunk(
+    upload_id: str = Form(...),
+    file_index: int = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    chunk: UploadFile = File(...),
+) -> dict[str, object]:
+    if not (0 <= file_index < 72 and 0 <= chunk_index < total_chunks <= 64):
+        raise HTTPException(status_code=400, detail="Invalid chunk metadata.")
+    content = await chunk.read()
+    if not content or len(content) > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Chunk must be 1MB or smaller.")
+    upload_dir = safe_chunk_upload_dir(upload_id)
+    file_dir = upload_dir / str(file_index)
+    file_dir.mkdir(parents=True, exist_ok=True)
+    (file_dir / f"{chunk_index:04d}.part").write_bytes(content)
+    return {"status": "stored", "chunk_index": chunk_index}
+
+
+@app.post("/api/manual-media/finalize")
+def finalize_manual_media_chunks(
+    document_id: int = Form(...),
+    page: int = Form(1),
+    media_type: str = Form(...),
+    title: str = Form(...),
+    alt_text: str = Form(""),
+    x_percent: float = Form(...),
+    y_percent: float = Form(...),
+    width_percent: float = Form(...),
+    height_percent: float = Form(...),
+    upload_id: str = Form(...),
+    file_manifest: str = Form(...),
+) -> dict[str, object]:
+    if media_type not in MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported media type.")
+    if not (0 <= x_percent <= 100 and 0 <= y_percent <= 100):
+        raise HTTPException(status_code=400, detail="Invalid hotspot position.")
+    if not (0.5 <= width_percent <= 100 and 0.5 <= height_percent <= 100):
+        raise HTTPException(status_code=400, detail="Invalid hotspot size.")
+    try:
+        manifest = json.loads(file_manifest)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid file manifest.") from exc
+    if not isinstance(manifest, list) or not manifest or len(manifest) > 72:
+        raise HTTPException(status_code=400, detail="Invalid media file count.")
+    if media_type in {"image", "gif"} and len(manifest) != 1:
+        raise HTTPException(status_code=400, detail="Select one image or GIF.")
+
+    upload_dir = safe_chunk_upload_dir(upload_id)
+    stored_filenames: list[str] = []
+    total_bytes = 0
+    try:
+        for file_index, item in enumerate(manifest):
+            original_name = str(item.get("name") or "")
+            suffix = Path(original_name).suffix.lower()
+            chunks_count = int(item.get("chunks") or 0)
+            expected_size = int(item.get("size") or 0)
+            if suffix not in MEDIA_EXTENSIONS or not (1 <= chunks_count <= 64):
+                raise HTTPException(status_code=400, detail="Invalid media file metadata.")
+            if expected_size <= 0 or expected_size > 25 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Each media file must be 25MB or smaller.")
+            destination_name = f"{uuid4().hex}{suffix}"
+            destination = settings.manual_media_dir / destination_name
+            written = 0
+            with destination.open("wb") as output:
+                for chunk_index in range(chunks_count):
+                    part = upload_dir / str(file_index) / f"{chunk_index:04d}.part"
+                    if not part.exists():
+                        raise HTTPException(status_code=409, detail="An upload chunk is missing.")
+                    data = part.read_bytes()
+                    output.write(data)
+                    written += len(data)
+            if written != expected_size:
+                destination.unlink(missing_ok=True)
+                raise HTTPException(status_code=409, detail="Uploaded file size mismatch.")
+            total_bytes += written
+            if total_bytes > 150 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Total media upload must be 150MB or smaller.")
+            stored_filenames.append(destination_name)
+
+        with db() as conn:
+            cur = conn.execute(
+                """
+                insert into manual_page_media(
+                  document_id, page_number, media_type, title, alt_text, files_json,
+                  x_percent, y_percent, width_percent, height_percent
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document_id, page, media_type, title.strip() or "Interactive media",
+                    alt_text.strip(), json.dumps(stored_filenames), x_percent, y_percent,
+                    width_percent, height_percent,
+                ),
+            )
+            media_id = int(cur.lastrowid)
+    except Exception:
+        for filename in stored_filenames:
+            (settings.manual_media_dir / filename).unlink(missing_ok=True)
+        raise
+    finally:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+    return {"status": "created", "media_id": media_id}
 
 
 @app.post("/manual-media-delete-form", response_class=HTMLResponse)

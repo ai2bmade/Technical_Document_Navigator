@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-5">
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-6">
   </head>
   <body>
     <div class="app">
@@ -966,15 +966,65 @@
         };
         adminStage?.addEventListener('pointerup', finishSelection);
         adminStage?.addEventListener('pointercancel', finishSelection);
-        mediaForm?.addEventListener('submit', (event) => {
-          if (!coordinateInputs?.width.value || Number(coordinateInputs.width.value) < 0.5) {
-            event.preventDefault();
-            alert('원본 페이지에서 미디어를 연결할 영역을 먼저 선택하세요.');
-          }
-        });
         const mediaType = document.querySelector('#media-type');
         const mediaFiles = document.querySelector('#manual-media-files');
         const mediaHelp = document.querySelector('#media-file-help');
+        mediaForm?.addEventListener('submit', async (event) => {
+          if (!coordinateInputs?.width.value || Number(coordinateInputs.width.value) < 0.5) {
+            event.preventDefault();
+            alert('원본 페이지에서 미디어를 연결할 영역을 먼저 선택하세요.');
+            return;
+          }
+          if (!mediaFiles?.files.length) return;
+          event.preventDefault();
+          const files = Array.from(mediaFiles.files);
+          const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+          if (files.some((file) => file.size > 25 * 1024 * 1024) || totalSize > 150 * 1024 * 1024) {
+            alert('파일당 25MB, 전체 150MB 이하로 선택하세요.');
+            return;
+          }
+          const submitButton = mediaForm.querySelector('.media-save-button');
+          if (submitButton) submitButton.disabled = true;
+          const bytes = new Uint8Array(16);
+          crypto.getRandomValues(bytes);
+          const uploadId = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+          const chunkSize = 768 * 1024;
+          const manifest = [];
+          try {
+            let completedBytes = 0;
+            for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+              const file = files[fileIndex];
+              const totalChunks = Math.ceil(file.size / chunkSize);
+              manifest.push({ name: file.name, size: file.size, chunks: totalChunks });
+              for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+                const start = chunkIndex * chunkSize;
+                const blob = file.slice(start, Math.min(file.size, start + chunkSize));
+                const data = new FormData();
+                data.append('upload_id', uploadId);
+                data.append('file_index', String(fileIndex));
+                data.append('chunk_index', String(chunkIndex));
+                data.append('total_chunks', String(totalChunks));
+                data.append('chunk', blob, `${file.name}.part`);
+                const response = await fetch('/api/manual-media/chunk', { method: 'POST', body: data });
+                if (!response.ok) throw new Error((await response.json()).detail || 'Chunk upload failed.');
+                completedBytes += blob.size;
+                if (coordinateStatus) coordinateStatus.textContent = `업로드 중 ${Math.round(completedBytes / totalSize * 100)}%`;
+              }
+            }
+            const finalData = new FormData();
+            for (const name of ['document_id', 'page', 'media_type', 'title', 'alt_text', 'x_percent', 'y_percent', 'width_percent', 'height_percent']) {
+              finalData.append(name, mediaForm.elements[name].value);
+            }
+            finalData.append('upload_id', uploadId);
+            finalData.append('file_manifest', JSON.stringify(manifest));
+            const finalize = await fetch('/api/manual-media/finalize', { method: 'POST', body: finalData });
+            if (!finalize.ok) throw new Error((await finalize.json()).detail || 'Upload finalization failed.');
+            window.location.href = `/?mode=manual_admin&document_id=${mediaForm.elements.document_id.value}&page=${mediaForm.elements.page.value}`;
+          } catch (error) {
+            if (coordinateStatus) coordinateStatus.textContent = `업로드 실패: ${error.message}`;
+            if (submitButton) submitButton.disabled = false;
+          }
+        });
         mediaType?.addEventListener('change', () => {
           const isSpin = mediaType.value === 'spin';
           if (mediaFiles) {
