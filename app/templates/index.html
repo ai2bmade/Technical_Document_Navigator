@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_name }}</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260627-6">
+    <link rel="stylesheet" href="/static/styles.css?v=20260627-7">
   </head>
   <body>
     <div class="app">
@@ -209,7 +209,7 @@
                     <div class="hotspot-stage">
                       <img class="zoomable-manual-image" src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
                       {% for media in page_media if media.is_published %}
-                      <button class="media-hotspot" type="button" data-media-id="{{ media.id }}" title="{{ media.title }}" style="left:{{ media.x_percent }}%;top:{{ media.y_percent }}%;width:{{ media.width_percent }}%;height:{{ media.height_percent }}%;"><span>{% if media.media_type == 'spin' %}360°{% else %}+{% endif %}</span></button>
+                      <button class="media-hotspot" type="button" data-media-id="{{ media.id }}" title="{{ media.title }}" style="left:{{ media.x_percent }}%;top:{{ media.y_percent }}%;width:{{ media.width_percent }}%;height:{{ media.height_percent }}%;"><span>View</span></button>
                       {% endfor %}
                     </div>
                     <figcaption>Original source page {{ selected_page }}</figcaption>
@@ -226,23 +226,25 @@
                       <div class="hotspot-stage">
                         <img class="zoomable-manual-image" src="/documents/{{ selected_manual.source_document_id }}/pages/{{ selected_page }}.png" alt="{{ selected_manual.display_name }} page {{ selected_page }}">
                         {% for media in page_media if media.is_published %}
-                        <button class="media-hotspot" type="button" data-media-id="{{ media.id }}" title="{{ media.title }}" style="left:{{ media.x_percent }}%;top:{{ media.y_percent }}%;width:{{ media.width_percent }}%;height:{{ media.height_percent }}%;"><span>{% if media.media_type == 'spin' %}360°{% else %}+{% endif %}</span></button>
+                        <button class="media-hotspot" type="button" data-media-id="{{ media.id }}" title="{{ media.title }}" style="left:{{ media.x_percent }}%;top:{{ media.y_percent }}%;width:{{ media.width_percent }}%;height:{{ media.height_percent }}%;"><span>View</span></button>
                         {% endfor %}
                       </div>
                       <figcaption>
                         <span>Original technical figure and page layout</span>
-                        <button class="image-zoom-button" type="button">크게 보기</button>
+                        <button class="image-zoom-button" type="button">Enlarge</button>
                       </figcaption>
                     </figure>
                     {% endif %}
                     <section class="digital-page-copy">
                     {% for section in preview_sections %}
                       {% if section.type == 'heading' %}
-                      <h2 class="doc-heading">{{ section.text }}</h2>
+                      <h2 class="doc-heading level-{{ section.level }}">{{ section.text }}</h2>
                       {% elif section.type == 'fact' %}
                       <dl class="doc-fact"><dt>{{ section.label }}</dt><dd>{{ section.value }}</dd></dl>
                       {% elif section.type == 'list' %}
                       <ol class="doc-list-structured">{% for item in section['items'] %}<li>{{ item }}</li>{% endfor %}</ol>
+                      {% elif section.type == 'reference' %}
+                      <p class="doc-figure-reference">{{ section.text }}</p>
                       {% else %}
                       <p class="doc-paragraph">{{ section.text }}</p>
                       {% endif %}
@@ -306,7 +308,7 @@
                     </div>
                     <figcaption>
                       <span>{% if mode == 'manual_admin' %}Original manual · Page {{ selected_page }}{% else %}Original PDF page {{ selected_page }}{% endif %}</span>
-                      {% if mode == 'manual_admin' %}<button class="image-zoom-button" type="button">크게 보기</button>{% endif %}
+                      {% if mode == 'manual_admin' %}<button class="image-zoom-button" type="button">Enlarge</button>{% endif %}
                     </figcaption>
                   </figure>
 

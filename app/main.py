@@ -201,6 +201,7 @@ def structure_manual_page(text: str) -> list[dict[str, object]]:
     sections: list[dict[str, object]] = []
     paragraph: list[str] = []
     numbered_items: list[str] = []
+    seen_headings: set[str] = set()
 
     def flush_paragraph() -> None:
         if paragraph:
@@ -213,6 +214,10 @@ def structure_manual_page(text: str) -> list[dict[str, object]]:
             numbered_items.clear()
 
     for line in lines:
+        if re.fullmatch(r"[A-Z]{2,}[A-Z0-9-]*\s+\d{1,4}", line):
+            continue
+        if line.lower() == "section":
+            continue
         item = re.match(r"^\(?\d+\)?[.)]?\s+(.+)$", line)
         if item:
             flush_paragraph()
@@ -224,11 +229,25 @@ def structure_manual_page(text: str) -> list[dict[str, object]]:
             label, value = line.split(":", 1)
             sections.append({"type": "fact", "label": label.strip(), "value": value.strip()})
             continue
+        if re.match(r"^[a-z]\d{6,}\s+Illustration\s+\d+", line, re.I):
+            flush_paragraph()
+            sections.append({"type": "reference", "text": line})
+            continue
         words = re.findall(r"[A-Za-z][A-Za-z0-9/-]*", line)
         title_like = bool(words) and sum(word[:1].isupper() for word in words) >= max(1, len(words) - 1)
         if len(line) <= 72 and title_like and not re.search(r"[.!?]$", line):
             flush_paragraph()
-            sections.append({"type": "heading", "text": line})
+            normalized = re.sub(r"[^a-z0-9]", "", line.lower())
+            if normalized in seen_headings:
+                continue
+            if normalized == "productinformation" and "productinformationsection" in seen_headings:
+                continue
+            seen_headings.add(normalized)
+            sections.append({
+                "type": "heading",
+                "text": line,
+                "level": 1 if line.lower().endswith("section") else 2,
+            })
             continue
         if re.fullmatch(r"[A-Za-z]?\d{6,}[A-Za-z0-9-]*", line):
             continue

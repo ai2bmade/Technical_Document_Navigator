@@ -1362,8 +1362,8 @@ button.pill {
 }
 
 .media-hotspot {
-  background: rgba(37, 99, 235, .08);
-  border: 1px solid rgba(37, 99, 235, .45);
+  background: transparent;
+  border: 0;
   color: #fff;
   min-height: 18px;
   min-width: 18px;
@@ -1375,9 +1375,8 @@ button.pill {
 
 .media-hotspot:hover,
 .media-hotspot:focus-visible {
-  background: rgba(37, 99, 235, .2);
-  border-color: #2563eb;
-  outline: 2px solid rgba(255, 255, 255, .9);
+  background: transparent;
+  outline: 0;
 }
 
 .media-hotspot span {
@@ -1394,11 +1393,48 @@ button.pill {
   position: absolute;
   right: -13px;
   top: -13px;
-  width: 26px;
+  min-width: 42px;
+  padding: 0 8px;
 }
 
 .admin-media-hotspot {
+  background: rgba(37, 99, 235, .08);
+  border: 1px dashed rgba(37, 99, 235, .55);
   border-style: dashed;
+}
+
+.admin-media-hotspot:hover,
+.admin-media-hotspot:focus-visible {
+  background: rgba(37, 99, 235, .2);
+  border-color: #2563eb;
+}
+
+.admin-media-hotspot span {
+  min-width: 26px;
+  padding: 0;
+  width: 26px;
+}
+
+.digital-manual .doc-heading.level-1 {
+  border-bottom: 1px solid #cbd5e1;
+  border-left: 0;
+  font-size: 24px;
+  margin-top: 42px;
+  padding: 0 0 10px;
+}
+
+.digital-manual .doc-heading.level-2 {
+  border-left-width: 3px;
+  font-size: 18px;
+  margin-top: 28px;
+}
+
+.doc-figure-reference {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  margin: 24px 0 10px;
 }
 
 .admin-hotspot-stage.selecting {
